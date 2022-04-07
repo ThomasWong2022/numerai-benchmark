@@ -1,0 +1,32 @@
+[build-system]
+requires = [
+    "setuptools>=42",
+    "wheel",
+    "scikit-learn",
+    "pandas",
+    "numpy",
+    "scipy",
+    ## Tabular Models
+    "xgboost",
+    "lightgbm",
+    "catboost",
+    "pytorch-tabnet>=3.1.1",
+    "fastai",
+    ## Feature Engineering 
+    "umap-learn",
+    "tsfresh>=0.18.0",
+    "iisignature>=0.0.23",
+    #"sktime>=0.8.0",
+    #"esig>=0.9.7",
+    ## Natural Language Processing
+    "tokenizers",
+    "transformers",
+]
+build-backend = "setuptools.build_meta"
+
+
+
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
