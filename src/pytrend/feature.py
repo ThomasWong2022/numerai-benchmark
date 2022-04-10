@@ -212,8 +212,12 @@ def benchmark_features_transform(
     debug=False,
 ):
 
-    ### Numerai Transforms (z-scores or quantile-transformed features)
-    if feature_eng == "numerai":
+    ### Numerai
+    if feature_eng in [
+        "numerai",
+        "numerai-pca",
+        "numerai-mlp",
+    ]:
         if feature_eng_parameters is None:
             feature_eng_parameters = {
                 "usesquare": False,

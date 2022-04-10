@@ -30,12 +30,6 @@ from sklearn.inspection import permutation_importance
 from sklearn.preprocessing import StandardScaler
 from sklearn.base import TransformerMixin, BaseEstimator
 
-## Machine Learning Models
-import xgboost
-import lightgbm
-import catboost
-import pytorch_tabnet
-
 
 ### Strategy metrics
 ##
@@ -44,11 +38,11 @@ import pytorch_tabnet
 def strategy_metrics(strategy, interval=1):
     results = dict()
     if strategy.std() > 0:
-        results["sharpe"] = strategy.mean() / strategy.std() * np.sqrt(252 / interval)
+        results["sharpe"] = strategy.mean() / strategy.std()
     else:
         results["sharpe"] = np.nan
-    results["mean"] = strategy.mean() * 252 / interval
-    results["volatility"] = strategy.std() * np.sqrt(252 / interval)
+    results["mean"] = strategy.mean()
+    results["volatility"] = strategy.std()
     results["skew"] = strategy.skew()
     results["kurtosis"] = strategy.kurtosis()
     portfolio = (1 + strategy).cumprod()
@@ -86,46 +80,6 @@ def align_features_target(features, target, large_value=1e6):
     features = features.reindex(valid_index)
     target = target.reindex(valid_index)
     return features, target
-
-
-### Persistence of ML models
-
-### Save Best Model using method provided
-def save_best_model(model, model_type, outputpath):
-    if model_type == "lightgbm":
-        model.booster_.save_model(outputpath)
-    if model_type == "xgboost":
-        model.get_booster().save_model(outputpath)
-    if model_type == "catboost":
-        model.save_model(outputpath)
-    if model_type == "tabnet":
-        model.save_model(outputpath)
-        os.rename("{}.zip".format(outputpath), outputpath)
-    if model_type == "pytorch_tabular":
-        ## Save at a folder
-        model.save_model(outputpath)
-    return None
-
-
-### load Best Model using method provided
-def load_best_model(model_type, outputpath):
-    if model_type == "lightgbm":
-        reg = lightgbm.Booster(model_file=outputpath)
-    if model_type == "xgboost":
-        reg = xgboost.XGBRegressor()
-        reg.load_model(outputpath)
-    if model_type == "catboost":
-        reg = catboost.CatBoost()
-        reg.load_model(outputpath)
-    if model_type == "tabnet":
-        reg = pytorch_tabnet.tab_model.TabNetRegressor()
-        reg.load_model(outputpath)
-    if model_type == "pytorch_tabular":
-        ## Save at a folder
-        from pytorch_tabular import TabularModel
-
-        reg = TabularModel.load_from_checkpoint(outputpath)
-    return reg
 
 
 ### Cross-Validation Schemes

@@ -13,7 +13,7 @@ from .util import (
 from .util import strategy_metrics
 
 ### Save and Loading ML Models
-from .util import save_best_model, load_best_model
+from .benchmark import save_best_model, load_best_model
 
 ### Feature Engineering
 from .feature import (

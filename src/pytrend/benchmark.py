@@ -27,6 +27,7 @@ import os
 from .util import align_features_target, RollingTSTransformer, GroupedTimeSeriesSplit
 from .feature import benchmark_features_transform
 
+
 from sklearn.metrics import mean_squared_error
 
 ## Machine Learning packages
@@ -54,6 +55,76 @@ from pytorch_tabular.models import (
 )
 
 
+import lightgbm
+import xgboost
+import catboost
+import pytorch_tabnet
+
+
+### Persistence of ML models
+
+### Save Best Model using method provided
+def save_best_model(model, model_type, outputpath):
+    if model_type in [
+        "lightgbm",  ## Backward Comptabile
+        "lightgbm-gbdt",
+        "lightgbm-goss",
+        "lightgbm-rf",
+        "lightgbm-dart",
+    ]:
+        model.booster_.save_model(outputpath)
+    if model_type in [
+        "xgboost-dart",
+        "xgboost-gbtree",
+    ]:
+        model.save_model(outputpath)
+    if model_type == "catboost":
+        model.save_model(outputpath)
+    if model_type == "tabnet":
+        model.save_model(outputpath)
+        os.rename("{}.zip".format(outputpath), outputpath)
+    if model_type in [
+        "pytorch-tabular-tabtransformer",
+        "pytorch-tabular-node",
+    ]:
+        ## Save at a folder
+        model.save_model(outputpath)
+    return None
+
+
+### load Best Model using method provided
+def load_best_model(model_type, outputpath):
+    if model_type in [
+        "lightgbm",  ## Backward Comptabile
+        "lightgbm-gbdt",
+        "lightgbm-goss",
+        "lightgbm-rf",
+        "lightgbm-dart",
+    ]:
+        reg = lightgbm.Booster(model_file=outputpath)
+    if model_type in [
+        "xgboost-dart",
+        "xgboost-gbtree",
+    ]:
+        reg = xgboost.XGBRegressor()
+        reg.load_model(outputpath)
+    if model_type == "catboost":
+        reg = catboost.CatBoost()
+        reg.load_model(outputpath)
+    if model_type == "tabnet":
+        reg = pytorch_tabnet.tab_model.TabNetRegressor()
+        reg.load_model(outputpath)
+    if model_type in [
+        "pytorch-tabular-tabtransformer",
+        "pytorch-tabular-node",
+    ]:
+        ## Save at a folder
+        from pytorch_tabular import TabularModel
+
+        reg = TabularModel.load_from_checkpoint(outputpath)
+    return reg
+
+
 ### Fit ML Models
 
 
@@ -69,8 +140,30 @@ def benchmark_tree_model(
     additional_hyper=None,
     debug=False,
 ):
+
+    ### Lightbgm
+    if tabular_model in [
+        "lightgbm-gbdt",
+        "lightgbm-dart",
+        "lightgbm-goss",
+        "lightgbm-rf",
+    ]:
+        if tabular_hyper:
+            reg = LGBMRegressor(**tabular_hyper)
+        else:
+            tabular_hyper = {
+                "n_estimators": 150,
+                "max_depth": 5,
+                "random_seed": 0,
+                "n_jobs": -1,
+            }
+            reg = LGBMRegressor(**tabular_hyper)
+
     ### XGBoost
-    if tabular_model == "xgboost":
+    if tabular_model in [
+        "xgboost-dart",
+        "xgboost-gbtree",
+    ]:
         if tabular_hyper:
             reg = XGBRegressor(**tabular_hyper)
         else:
@@ -85,19 +178,6 @@ def benchmark_tree_model(
     ## For both lightgbm and catboost, early stopping is specified in the parameters
     ## catboost will fail if there are extra parameters
     ## lightgbm will ignore extra parameters
-
-    ### Lightbgm
-    if tabular_model == "lightgbm-gbdt":
-        if tabular_hyper:
-            reg = LGBMRegressor(**tabular_hyper)
-        else:
-            tabular_hyper = {
-                "n_estimators": 150,
-                "max_depth": 5,
-                "random_seed": 0,
-                "n_jobs": -1,
-            }
-            reg = LGBMRegressor(**tabular_hyper)
 
     ### catboost
     if tabular_model == "catboost":
@@ -115,6 +195,9 @@ def benchmark_tree_model(
     #### Fit Regressor Model for different ML methods
     if tabular_model in [
         "lightgbm-gbdt",
+        "lightgbm-dart",
+        "lightgbm-goss",
+        "lightgbm-rf",
     ]:
         if extracted_features_test is not None:
             reg.fit(
@@ -130,12 +213,49 @@ def benchmark_tree_model(
             )
 
         if extracted_features_test is not None:
-            valid_iteration = min(additional_hyper.get('lgb_start_iteration',0), int(reg.booster_.num_trees() // 2))
+            valid_iteration = min(
+                additional_hyper.get("gbm_start_iteration", 0),
+                int(reg.booster_.num_trees() // 2),
+            )
             pred = reg.predict(extracted_features_test, start_iteration=valid_iteration)
             return reg, pred
         else:
             return reg
-        
+
+    ## xgboost ignores extra parameters
+    if tabular_model in [
+        "xgboost-dart",
+        "xgboost-gbtree",
+    ]:
+        ## Ensemble Regressor
+        if extracted_features_test is not None:
+            ## xgboost in version 1.6.0 will have early_stopping moved to initlisation
+            reg.fit(
+                extracted_features_train,
+                y_train,
+                eval_set=[(extracted_features_test, y_test)],
+                early_stopping_rounds=tabular_hyper["early_stopping_rounds"],
+            )
+        else:
+            reg.fit(
+                extracted_features_train,
+                y_train,
+            )
+
+        if extracted_features_test is not None:
+            valid_iteration = min(
+                additional_hyper.get("gbm_start_iteration", 0),
+                int(reg.get_booster().best_iteration // 2),
+            )
+            end_iteration = reg.get_booster().best_iteration
+            pred = reg.predict(
+                extracted_features_test,
+                iteration_range=(valid_iteration, end_iteration),
+            )
+            return reg, pred
+        else:
+            return reg
+
     #### Fit Regressor Model for different ML methods
     if tabular_model in [
         "catboost",
@@ -146,32 +266,6 @@ def benchmark_tree_model(
                 y_train,
                 sample_weight=weights_train,
                 eval_set=[(extracted_features_test, y_test)],
-            )
-        else:
-            reg.fit(
-                extracted_features_train,
-                y_train,
-            )
-
-        if extracted_features_test is not None:
-            pred = reg.predict(extracted_features_test)
-            return reg, pred
-        else:
-            return reg
-        
-
-    ## xgboost ignores extra parameters
-    if tabular_model in [
-        "xgboost",
-    ]:
-        ## Ensemble Regressor
-        if extracted_features_test is not None:
-            ## xgboost in version 1.6.0 will have early_stopping moved to initlisation
-            reg.fit(
-                extracted_features_train,
-                y_train,
-                eval_set=[(extracted_features_test, y_test)],
-                early_stopping_rounds=tabular_hyper["early_stopping_rounds"],
             )
         else:
             reg.fit(
@@ -243,7 +337,10 @@ def benchmark_neural_model(
             }
             reg = TabNetRegressor(**tabnet_hyper)
 
-    if tabular_model == "pytorch-tabular":
+    if tabular_model in [
+        "pytorch-tabular-tabtransformer",
+        "pytorch-tabular-node",
+    ]:
 
         ## Create Configurations
 
@@ -265,7 +362,7 @@ def benchmark_neural_model(
             auto_lr_find=True,  # Runs the LRFinder to automatically derive a learning rate
             batch_size=tabular_hyper.get("batch_size", 1024),
             max_epochs=tabular_hyper.get("max_epochs", 100),
-            gpus=tabular_hyper.get("gpus", None),
+            gpus=tabular_hyper.get("gpus", 1),
         )
 
         optimizer_config = OptimizerConfig()
@@ -368,7 +465,8 @@ def benchmark_neural_model(
             return reg
 
     if tabular_model in [
-        "pytorch-tabular",
+        "pytorch-tabular-tabtransformer",
+        "pytorch-tabular-node",
     ]:
         train = pd.concat([extracted_features_train, y_train], axis=1)
         if extracted_features_test is not None:
@@ -461,7 +559,7 @@ def benchmark_pipeline(
         parameters[model_name] = {
             "feature_eng": feature_eng_parameters.copy(),
             "tabular": tabular_hyper.copy(),
-            "additional": additional_hyper.copy(), 
+            "additional": additional_hyper.copy(),
         }
 
         if debug:
@@ -520,7 +618,8 @@ def benchmark_pipeline(
             "lightgbm-goss",
             "lightgbm-dart",
             "lightgbm-rf",
-            "xgboost",
+            "xgboost-dart",
+            "xgboost-gbtree",
             "catboost",
         ]:
 
@@ -540,7 +639,8 @@ def benchmark_pipeline(
 
         elif tabular_model in [
             "tabnet",
-            "pytorch-tabular",
+            "pytorch-tabular-tabtransformer",
+            "pytorch-tabular-node",
         ]:
 
             ### Train Tabular Models

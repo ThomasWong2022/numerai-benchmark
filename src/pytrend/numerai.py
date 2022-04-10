@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# A collection of tools for data pre-processing for Numerai
+# A collection of tools for data processing for Numerai and other temporal tabular data competitions
 #
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,10 +21,12 @@ import pandas as pd
 import numpy as np
 import scipy
 
-import joblib
-import datetime
+import joblib, datetime, json
 
-from .util import save_best_model, load_best_model, GroupedTimeSeriesSplit
+import xgboost
+
+from .benchmark import load_best_model, save_best_model
+from .util import align_features_target, RollingTSTransformer, GroupedTimeSeriesSplit
 
 ### Map Numerai Era to actual datetime
 def create_era_index(
@@ -56,10 +58,10 @@ def load_numerai_data(
     endera="9999",
 ):
     ## Read Train Data
-    df_raw = pd.read_parquet(filename).dropna(subset=target_col)
+    df_raw = pd.read_parquet(filename)
 
     ## Work Around for live with era with unknown era
-    df_raw[era_col] = df_raw[era_col].replace("X", "9999")
+    df_raw[era_col] = df_raw[era_col].replace("X", "9998")
 
     ## Downsample Data
     df_raw = df_raw[(df_raw[era_col] >= startera) & (df_raw[era_col] <= endera)]
@@ -116,8 +118,9 @@ def predict_numerai(
     trained_model,
     parameters,
     modelname="sample",
-    lgb_start_iteration=0, ## Backward Comptability
+    gbm_start_iteration=None,  ## Backward Comptability
     era_col="era",
+    debug=False,
 ):
     ## Score on Dataset
 
@@ -133,14 +136,42 @@ def predict_numerai(
 
     ## Run Predictions
     ## For tree-based models can run some of the trees only
-    if parameters["parameters"]["model"]["tabular_model"] == "lightgbm":
-        ## Backward Compatability 
-        if "additional" in parameters["parameters"]:
-            lgb_start_iteration = parameters["parameters"]["additional"].get("lgb_start_iteration", 0)
-        valid_iteration = min(lgb_start_iteration, int(trained_model.num_trees() // 2))
+    if parameters["parameters"]["model"]["tabular_model"] in [
+        "lightgbm-gbdt",
+        "lightgbm-dart",
+        "lightgbm-goss",
+        "lightgbm-rf",
+    ]:
+        ## Backward Compatability
+        if "additional" in parameters["parameters"] and gbm_start_iteration is None:
+            gbm_start_iteration = parameters["parameters"]["additional"].get(
+                "gbm_start_iteration", 0
+            )
+        valid_iteration = min(gbm_start_iteration, int(trained_model.num_trees() // 2))
         predictions_raw = trained_model.predict(
             features, start_iteration=valid_iteration
         )
+    elif parameters["parameters"]["model"]["tabular_model"] in [
+        "xgboost-dart",
+        "xgboost-gbtree",
+    ]:
+        ## Backward Compatability
+        if "additional" in parameters["parameters"] and gbm_start_iteration is None:
+            gbm_start_iteration = parameters["parameters"]["additional"].get(
+                "gbm_start_iteration", 0
+            )
+        end_iteration = trained_model.get_booster().best_iteration
+        valid_iteration = min(gbm_start_iteration, int(end_iteration // 2))
+        predictions_raw = trained_model.predict(
+            features,
+            iteration_range=(valid_iteration, end_iteration),
+        )
+    elif parameters["parameters"]["model"]["tabular_model"] == "pytorch-tabular":
+        predictions_raw = trained_model.predict(features)[
+            f"{target_col[0]}_prediction"
+        ].values
+    elif parameters["parameters"]["model"]["tabular_model"] == "tabnet":
+        predictions_raw = trained_model.predict(features.values)
     else:
         predictions_raw = trained_model.predict(features)
 
@@ -180,11 +211,12 @@ def score_numerai(
     prediction_df,
     features,
     riskiest_features,
-    proportion=1,
+    proportion=0,
     modelname="sample",
     target_col_name="target",
     prediction_col="prediction",
     era_col="era",
+    debug=False,
 ):
     ## Find Correlation by era
     correlations_by_era = list()
@@ -209,9 +241,7 @@ def score_numerai(
             df["neutralised_prediction"] = df[
                 "normalised_prediction"
             ] - proportion * exposures.dot(
-                np.linalg.pinv(exposures.astype(np.float32)).dot(
-                    df["normalised_prediction"].astype(np.float32)
-                )
+                np.linalg.pinv(exposures).dot(df["normalised_prediction"])
             )
             df["neutralised_prediction"] = (
                 df["neutralised_prediction"] / df["neutralised_prediction"].std()
@@ -223,6 +253,8 @@ def score_numerai(
                 "neutralised_prediction"
             ].rank(pct=True)
         correlations_by_era.append(output)
+        if debug:
+            print(output)
     correlations_by_era = pd.DataFrame.from_records(correlations_by_era)
     correlations_by_era["model_name"] = modelname
     return prediction_df, correlations_by_era
@@ -230,15 +262,15 @@ def score_numerai(
 
 def score_numerai_multiple(
     Numerai_Model_Names,
-    filename="v3_numerai_validation_data_int8.parquet",
+    filename="data/v4_all_int8.parquet",
     data_version="v4",
     feature_selection="v4",
     startera="0001",
     endera="9999",
     riskiest_features=None,
-    proportion=0.75,
-    lgb_start_iteration=0, ## Backward Compatability 
-    debug=True,
+    proportion=0,
+    gbm_start_iteration=500,  ## Set to None to use the lgb_start_iteration from Numerai Hyper-parameter Search
+    debug=False,
     era_col="era",
     target_col=["target"],
 ):
@@ -273,7 +305,7 @@ def score_numerai_multiple(
             most_recent_model,
             parameters,
             modelname=modelname,
-            lgb_start_iteration=lgb_start_iteration,
+            gbm_start_iteration=gbm_start_iteration,
             era_col=era_col,
         )
         if riskiest_features is None:
@@ -288,6 +320,9 @@ def score_numerai_multiple(
             target_col_name=target_col[0],
             era_col=era_col,
         )
+
+        ## Filter to predict on eras that are after the validation era of the trained model
+
         prediction_df_list.append(prediction_df)
         score_df_list.append(correlations_by_era)
 
@@ -323,119 +358,6 @@ def score_numerai_multiple(
     else:
         return pd.DataFrame(), pd.DataFrame(), prediction_df_list, score_df_list
 
-    
-
-"""
-Finetune Model 
-
-
-"""    
-    
-def predict_numerai_online(
-    features_raw,
-    targets,
-    groups,
-    weights,
-    trained_model,
-    parameters,
-    model_params=None,
-    proportion=0.25,
-    modelname="sample",
-    era_col="era",
-    target_col_name="target",
-):
-    ## Score on Dataset
-
-    selected_cols = parameters["parameters"]["model"]["feature_columns"]
-    target_col = parameters["parameters"]["model"]["target_columns"]
-        
-    ## Start Cross Validation 
-    if model_params is None:
-        model_params = {
-            "valid_splits": 5,
-            "test_size": 52 * 1,
-            "max_train_size": None,
-            "gap": 12,
-        }
-        
-    tscv = GroupedTimeSeriesSplit(
-        valid_splits=model_params["valid_splits"],
-        test_size=model_params["test_size"],
-        max_train_size=model_params["max_train_size"],
-        gap=model_params["gap"],
-        debug=debug,
-    )     
-    
-    prediction_df_list = list()
-    
-    for train_index, test_index in tscv.split(features, groups=groups):
-
-        model_name = "{}_{}_online{}".format(feature_eng, tabular_model, model_no)
-        ## Get Trained and Test Data
-        X_train, X_test = features_raw.loc[train_index, :], features_raw.loc[test_index, :]
-        y_train, y_test = targets.loc[train_index, :], targets.loc[test_index, :]
-        ## Data Weights are pd Series
-        weights_train, weights_test = (
-            weights.loc[train_index],
-            weights.loc[test_index],
-        )
-        ## Group Labels are pd Series
-        group_train, group_test = (
-            groups.loc[train_index],
-            groups.loc[test_index],
-        )
-        
-        ## Transform Features
-        if parameters["transformer"] is not None:
-            transformer = parameters["transformer"]
-            features_train = transformer.transform(X_train, is_train=False)
-        else:
-            features_train = X_train 
-        
-        
-        ## Refit Existing Model 
-        if tabular_model in [
-            "lightgbm-gbdt",
-            "lightgbm-dart",
-            "lightgbm-goss",
-            "lightgbm-rf",
-        ]:
-            
-            trained_model.refit(features_train, y_train)
-            
-       ## Predict and Score on validation
-    
-        prediction_df = predict_numerai(
-        X_test,
-        y_test,
-        group_test,
-        trained_model,
-        parameters,
-        modelname=modelname,
-        era_col=era_col,
-        )
-        
-        
-        prediction_df, correlations_by_era = score_numerai(
-            prediction_df,
-            X_test,
-            X_test.columns,
-            proportion=proportion,
-            modelname=modelname,
-            target_col_name=target_col_name,
-            prediction_col="prediction",
-            era_col=era_col,
-        )    
-        
-        prediction_df_list.append(prediction_df)
-    
-    prediction_df_all = pd.concat(prediction_df_list,axis=0)
-
-    return trained_model, prediction_df_all
-    
-    
-    
-    
 
 """
 Factor Timing
@@ -472,7 +394,7 @@ def numerai_factor_portfolio(
     target_col_name=None,
     era_col="era",
     correlation_matrix=None,
-    gap=12,
+    gap=16,
     lookback=52,
 ):
 
@@ -529,3 +451,272 @@ def numerai_factor_portfolio(
         prediction_fm,
         correlations_fm,
     )
+
+
+def dynamic_feature_neutralisation(
+    features_raw,
+    targets,
+    groups,
+    trained_model,
+    parameters,
+    correlation_matrix,
+    features_optimizer=None,
+    modelname="sample",
+    gbm_start_iteration=None,
+    era_col="era",
+    cutoff=420,
+    gap=16,
+    lookback=52,
+    proportion=1,
+    debug=False,
+):
+
+    if features_optimizer is None:
+        features_optimizer = features_raw.columns[:cutoff]
+
+    ## Generate Feature Momentum Leaderboard
+    factor_momentum = correlation_matrix.shift(gap).fillna(0).rolling(lookback).mean()
+    factor_volatility = correlation_matrix.shift(gap).fillna(0).rolling(lookback).std()
+
+    fm_max_index = factor_momentum.index.max()
+    fm_min_index = factor_momentum.index.min()
+
+    ## Get Un-neutralised predictions
+    prediction_df = predict_numerai(
+        features_raw,
+        targets,
+        groups,
+        trained_model,
+        parameters,
+        modelname,
+        gbm_start_iteration,
+        era_col,
+        debug,
+    )
+
+    ##
+    factor_momentum_eras = factor_momentum.unstack(level=0).reset_index()
+    factor_momentum_eras.columns = ["feature_name", "era", "momentum"]
+    factor_volatility_eras = factor_volatility.unstack(level=0).reset_index()
+    factor_volatility_eras.columns = ["feature_name", "era", "volatility"]
+
+    ## Get index by era
+    prediction_dynamic = list()
+    correlation_dynamic = list()
+    for i, df in prediction_df.groupby(era_col):
+        if debug:
+            print(i, df.shape)
+        if (i <= fm_max_index) & (i >= fm_min_index):
+            prediction_df_era = prediction_df.loc[df.index]
+            features_raw_era = features_raw.loc[df.index]
+            factor_momentum_era = factor_momentum_eras[factor_momentum_eras["era"] == i]
+            factor_volatility_era = factor_volatility_eras[
+                factor_volatility_eras["era"] == i
+            ]
+            ## Optimizer
+            prediction_df_era, correlations_by_era = score_numerai(
+                prediction_df_era,
+                features_raw_era,
+                features_optimizer,
+                proportion=proportion,
+                modelname=f"{modelname}-optimizer",
+                era_col=era_col,
+                debug=debug,
+            )
+            prediction_dynamic.append(prediction_df_era)
+            correlation_dynamic.append(correlations_by_era)
+            ## Momentum
+            momentum_winners = factor_momentum_era.sort_values("momentum").tail(cutoff)[
+                "feature_name"
+            ]
+            prediction_df_era, correlations_by_era = score_numerai(
+                prediction_df_era,
+                features_raw_era,
+                momentum_winners,
+                proportion=proportion,
+                modelname=f"{modelname}-momentum_winners",
+                era_col=era_col,
+                debug=debug,
+            )
+            prediction_dynamic.append(prediction_df_era)
+            correlation_dynamic.append(correlations_by_era)
+            momentum_losers = factor_momentum_era.sort_values("momentum").head(cutoff)[
+                "feature_name"
+            ]
+            prediction_df_era, correlations_by_era = score_numerai(
+                prediction_df_era,
+                features_raw_era,
+                momentum_losers,
+                proportion=proportion,
+                modelname=f"{modelname}-momentum_losers",
+                era_col=era_col,
+                debug=debug,
+            )
+            prediction_dynamic.append(prediction_df_era)
+            correlation_dynamic.append(correlations_by_era)
+            ## Volatility
+            high_vol = factor_volatility_era.sort_values("volatility").tail(cutoff)[
+                "feature_name"
+            ]
+            prediction_df_era, correlations_by_era = score_numerai(
+                prediction_df_era,
+                features_raw_era,
+                high_vol,
+                proportion=proportion,
+                modelname=f"{modelname}-high_vol",
+                era_col=era_col,
+                debug=debug,
+            )
+            prediction_dynamic.append(prediction_df_era)
+            correlation_dynamic.append(correlations_by_era)
+            low_vol = factor_volatility_era.sort_values("volatility").head(cutoff)[
+                "feature_name"
+            ]
+            prediction_df_era, correlations_by_era = score_numerai(
+                prediction_df_era,
+                features_raw_era,
+                low_vol,
+                proportion=proportion,
+                modelname=f"{modelname}-low_vol",
+                era_col=era_col,
+                debug=debug,
+            )
+            prediction_dynamic.append(prediction_df_era)
+            correlation_dynamic.append(correlations_by_era)
+
+    return pd.concat(prediction_dynamic, axis=0), pd.concat(correlation_dynamic, axis=0)
+
+
+"""
+Finetune Model 
+
+
+"""
+
+
+def predict_numerai_online(
+    features_raw,
+    targets,
+    groups,
+    weights,
+    trained_model,
+    parameters,
+    model_params=None,
+    riskiest_features=None,
+    proportion=0,
+    modelname="sample",
+    era_col="era",
+    target_col_name="target",
+    debug=False,
+):
+    ## Score on Dataset
+
+    selected_cols = parameters["parameters"]["model"]["feature_columns"]
+    target_col = parameters["parameters"]["model"]["target_columns"]
+
+    ## Start Cross Validation
+    if model_params is None:
+        model_params = {
+            "valid_splits": 5,
+            "test_size": 52 * 1,
+            "max_train_size": None,
+            "gap": 14,
+        }
+
+    tscv = GroupedTimeSeriesSplit(
+        valid_splits=model_params["valid_splits"],
+        test_size=model_params["test_size"],
+        max_train_size=model_params["max_train_size"],
+        gap=model_params["gap"],
+    )
+
+    prediction_df_list = list()
+    correlation_df_list = list()
+
+    for train_index, test_index in tscv.split(features_raw, groups=groups):
+
+        ## Get Trained and Test Data
+        X_train, X_test = (
+            features_raw.loc[train_index, :],
+            features_raw.loc[test_index, :],
+        )
+        y_train, y_test = targets.loc[train_index, :], targets.loc[test_index, :]
+        ## Data Weights are pd Series
+        weights_train, weights_test = (
+            weights.loc[train_index],
+            weights.loc[test_index],
+        )
+        ## Group Labels are pd Series
+        group_train, group_test = (
+            groups.loc[train_index],
+            groups.loc[test_index],
+        )
+
+        ## Transform Features
+        if parameters["transformer"] is not None:
+            transformer = parameters["transformer"]
+            features_train = transformer.transform(X_train, is_train=False)
+        else:
+            features_train = X_train
+
+        tabular_model = parameters["parameters"]["model"]["tabular_model"]
+
+        ## Refit Existing lightgbm models, update tree values by retain tree structures
+        if tabular_model in [
+            "lightgbm-gbdt",
+            "lightgbm-dart",
+            "lightgbm-goss",
+            "lightgbm-rf",
+        ]:
+
+            trained_model.refit(features_train, y_train)
+
+        ## Refit Existing lightgbm models, update tree values by retain tree structures
+        ## The current API is not working
+        if tabular_model in [
+            "xgboost-dart",
+            "xgboost-gbtree",
+        ]:
+            trained_model.set_params(
+                process_type="update",
+                updater="refresh",
+                refresh_leaf=True,
+            )
+
+            trained_model.fit(features_train, y_train)
+
+        ## Predict and Score on validation
+
+        if not riskiest_features:
+            riskiest_features = (X_test.columns,)
+
+        prediction_df = predict_numerai(
+            X_test,
+            y_test,
+            group_test,
+            trained_model,
+            parameters,
+            modelname=modelname,
+            era_col=era_col,
+            debug=debug,
+        )
+
+        prediction_df, correlations_by_era = score_numerai(
+            prediction_df,
+            X_test,
+            riskiest_features,
+            proportion=proportion,
+            modelname=modelname,
+            target_col_name=target_col_name,
+            prediction_col="prediction",
+            era_col=era_col,
+            debug=debug,
+        )
+
+        prediction_df_list.append(prediction_df)
+        correlation_df_list.append(correlations_by_era)
+
+    prediction_df_all = pd.concat(prediction_df_list, axis=0)
+    correlation_df_all = pd.concat(correlation_df_list, axis=0)
+
+    return trained_model, prediction_df_all, correlation_df_all
