@@ -508,7 +508,7 @@ def hyperopt_search(
 
     if model_params is None:
         model_params = {
-            "test_size": 52 * 4,
+            "test_size": 52 * 2,
             "valid_splits": 1,
             "max_train_size": None,
             "gap": 52,
@@ -619,7 +619,7 @@ def train_best_model(
 
     if model_params is None:
         model_params = {
-            "test_size": 52 * 4,
+            "test_size": 52 * 2,
             "valid_splits": 1,
             "max_train_size": None,
             "gap": 52,

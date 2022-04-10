@@ -91,7 +91,7 @@ class GroupedTimeSeriesSplit(TimeSeriesSplit):
         n_splits=5,
         valid_splits=1,
         max_train_size=None,
-        test_size=52,
+        test_size=52 * 2,
         gap=52,
         debug=False,
     ):
@@ -168,33 +168,41 @@ class GroupedTimeSeriesSplit(TimeSeriesSplit):
             ## Get unique groups
             unique_groups = groups.unique()
             gap = self.gap
-            ## Calculate test size
+            ## Calculate test size if not provided
             if self.test_size:
                 n_folds = (len(unique_groups) - gap) // self.test_size
             else:
                 n_folds = self.n_splits + 1
                 self.test_size = len(unique_groups) // n_folds
             test_splits = [
-                unique_groups[(i + 1) * self.test_size : (i + 2) * self.test_size]
+                unique_groups[
+                    len(unique_groups)
+                    - (i + 1) * self.test_size : len(unique_groups)
+                    - i * self.test_size
+                ]
                 for i in range(n_folds - 1)
             ]
             if self.max_train_size:
                 train_splits = [
                     unique_groups[
-                        max((i + 1) * self.test_size - gap - self.max_train_size, 0) : (
-                            i + 1
-                        )
-                        * self.test_size
+                        max(
+                            len(unique_groups)
+                            - (i + 1) * self.test_size
+                            - gap
+                            - self.max_train_size,
+                            0,
+                        ) : len(unique_groups)
+                        - (i + 1) * self.test_size
                         - gap
                     ]
                     for i in range(n_folds - 1)
                 ]
             else:
                 train_splits = [
-                    unique_groups[: (i + 1) * self.test_size - gap]
+                    unique_groups[: len(unique_groups) - (i + 1) * self.test_size - gap]
                     for i in range(n_folds - 1)
                 ]
-            for i in range(n_folds - 1 - self.valid_splits, n_folds - 1):
+            for i in range(0, self.valid_splits):
                 if self.debug:
                     print(train_splits[i], test_splits[i])
                 yield (
