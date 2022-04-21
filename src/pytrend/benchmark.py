@@ -74,6 +74,7 @@ def save_best_model(model, model_type, outputpath):
     ]:
         model.booster_.save_model(outputpath)
     if model_type in [
+        "xgboost",  ## Backward Comptabile
         "xgboost-dart",
         "xgboost-gbtree",
     ]:
@@ -84,6 +85,7 @@ def save_best_model(model, model_type, outputpath):
         model.save_model(outputpath)
         os.rename("{}.zip".format(outputpath), outputpath)
     if model_type in [
+        "pytorch-tabular",  ## Backward Comptabile
         "pytorch-tabular-tabtransformer",
         "pytorch-tabular-node",
     ]:
@@ -103,6 +105,7 @@ def load_best_model(model_type, outputpath):
     ]:
         reg = lightgbm.Booster(model_file=outputpath)
     if model_type in [
+        "xgboost",  ## Backward Comptabile
         "xgboost-dart",
         "xgboost-gbtree",
     ]:
@@ -115,6 +118,7 @@ def load_best_model(model_type, outputpath):
         reg = pytorch_tabnet.tab_model.TabNetRegressor()
         reg.load_model(outputpath)
     if model_type in [
+        "pytorch-tabular",  ## Backward Comptabile
         "pytorch-tabular-tabtransformer",
         "pytorch-tabular-node",
     ]:

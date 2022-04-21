@@ -53,7 +53,6 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
             "usesquare",
             [
                 False,
-                True,
             ],
         )
         space["dropout_pct"] = hp.choice(

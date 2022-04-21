@@ -27,8 +27,8 @@ import joblib
 from sklearn.base import TransformerMixin, BaseEstimator
 
 ## Feature Engineering packages
-import iisignature as iis
 from sklearn.decomposition import PCA
+import iisignature as iis
 
 
 ### Feature Union that persists transformer history for online learning and supports multi-processing
@@ -177,7 +177,7 @@ class NumeraiTransformer(TransformerMixin, BaseEstimator):
         if self.dropout_pct > 0 and is_train:
             dropout_matrix = 1 - rng.binomial(
                 1, self.dropout_pct, transformed_features.shape
-            )
+            ).astype(np.int8)
             transformed_features = transformed_features * dropout_matrix.astype(np.int8)
         return transformed_features
 

@@ -130,9 +130,9 @@ def predict_numerai(
     ## Transform Features
     if parameters["transformer"] is not None:
         transformer = parameters["transformer"]
-        features = transformer.transform(features_raw, is_train=False)
+        features = transformer.transform(features_raw[selected_cols], is_train=False)
     else:
-        features = features_raw
+        features = features_raw[selected_cols]
 
     ## Run Predictions
     ## For tree-based models can run some of the trees only
@@ -166,7 +166,10 @@ def predict_numerai(
             features,
             iteration_range=(valid_iteration, end_iteration),
         )
-    elif parameters["parameters"]["model"]["tabular_model"] == "pytorch-tabular":
+    elif parameters["parameters"]["model"]["tabular_model"] in [
+        "pytorch-tabular-tabtransformer",
+        "pytorch-tabular-node",
+    ]:
         predictions_raw = trained_model.predict(features)[
             f"{target_col[0]}_prediction"
         ].values
@@ -269,7 +272,7 @@ def score_numerai_multiple(
     endera="9999",
     riskiest_features=None,
     proportion=0,
-    gbm_start_iteration=500,  ## Set to None to use the lgb_start_iteration from Numerai Hyper-parameter Search
+    gbm_start_iteration=None,  ## Set to None to use the lgb_start_iteration from Numerai Hyper-parameter Search
     debug=False,
     era_col="era",
     target_col=["target"],
@@ -307,6 +310,7 @@ def score_numerai_multiple(
             modelname=modelname,
             gbm_start_iteration=gbm_start_iteration,
             era_col=era_col,
+            debug=debug,
         )
         if riskiest_features is None:
             riskiest_features = parameters["parameters"]["model"]["feature_columns"]
@@ -319,6 +323,7 @@ def score_numerai_multiple(
             modelname,
             target_col_name=target_col[0],
             era_col=era_col,
+            debug=debug,
         )
 
         ## Filter to predict on eras that are after the validation era of the trained model
@@ -348,6 +353,7 @@ def score_numerai_multiple(
             "Mean",
             target_col_name=target_col[0],
             era_col=era_col,
+            debug=debug,
         )
         return (
             average_prediction_df,
@@ -620,7 +626,7 @@ def predict_numerai_online(
             "valid_splits": 5,
             "test_size": 52 * 1,
             "max_train_size": None,
-            "gap": 14,
+            "gap": 16,
         }
 
     tscv = GroupedTimeSeriesSplit(
@@ -637,8 +643,8 @@ def predict_numerai_online(
 
         ## Get Trained and Test Data
         X_train, X_test = (
-            features_raw.loc[train_index, :],
-            features_raw.loc[test_index, :],
+            features_raw.loc[train_index, selected_cols],
+            features_raw.loc[test_index, selected_cols],
         )
         y_train, y_test = targets.loc[train_index, :], targets.loc[test_index, :]
         ## Data Weights are pd Series

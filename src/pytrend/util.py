@@ -35,7 +35,7 @@ from sklearn.base import TransformerMixin, BaseEstimator
 ##
 ## strategy: pd.Series (timestamp x ), usually to be daily return of a trading strategy
 ##
-def strategy_metrics(strategy, interval=1):
+def strategy_metrics(strategy, interval=1, numerai=True):
     results = dict()
     if strategy.std() > 0:
         results["sharpe"] = strategy.mean() / strategy.std()
@@ -45,7 +45,10 @@ def strategy_metrics(strategy, interval=1):
     results["volatility"] = strategy.std()
     results["skew"] = strategy.skew()
     results["kurtosis"] = strategy.kurtosis()
-    portfolio = (1 + strategy).cumprod()
+    if numerai:
+        portfolio = strategy.cumsum()
+    else:
+        portfolio = (1 + strategy).cumprod()
     dd = (portfolio - portfolio.cummax()) / portfolio.cummax()
     results["max_drawdown"] = -1 * dd.cummin().min()
     if results["max_drawdown"] > 0:
