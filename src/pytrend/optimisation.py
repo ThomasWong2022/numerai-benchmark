@@ -63,17 +63,16 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
     if feature_eng == "numerai-pca":
         space["no_pca_features"] = hp.choice(
             "no_pca_features",
-            [5 * i for i in range(0, 11)],
+            [5 * i for i in range(0, 21)],
         )
         space["no_product_features"] = hp.choice(
             "no_product_features",
-            [20 * i for i in range(0, 101)],
+            [20 * i for i in range(0, 1)],
         )
         space["usesquare"] = hp.choice(
             "usesquare",
             [
                 False,
-                True,
             ],
         )
         space["dropout_pct"] = hp.choice(
@@ -257,7 +256,7 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
         )
         space["num_heads"] = hp.choice(
             "num_heads",
-            [i for i in range(2, 6)],
+            [i for i in range(1, 2)],
         )
         space["num_attn_blocks"] = hp.choice(
             "num_attn_blocks",
@@ -285,11 +284,11 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
         )
         space["num_trees"] = hp.choice(
             "num_trees",
-            [10 * i for i in range(5, 15)],
+            [5 * i for i in range(5, 15)],
         )
         space["depth"] = hp.choice(
             "depth",
-            [i for i in range(2, 8)],
+            [i for i in range(2, 5)],
         )
 
     if ml_method == "tabnet":
@@ -307,15 +306,15 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
         )
         space["n_d"] = hp.choice(
             "n_d",
-            [8 * i for i in range(1, 4)],
+            [4 * i for i in range(1, 9)],
         )
         space["n_a"] = hp.choice(
             "n_a",
-            [8 * i for i in range(1, 4)],
+            [4 * i for i in range(1, 9)],
         )
         space["n_steps"] = hp.choice(
             "n_steps",
-            [i for i in range(3, 7)],
+            [i for i in range(2, 5)],
         )
         space["gamma"] = hp.choice(
             "gamma",
@@ -323,11 +322,11 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
         )
         space["n_independent"] = hp.choice(
             "n_independent",
-            [i for i in range(1, 4)],
+            [i for i in range(1, 3)],
         )
         space["n_shared"] = hp.choice(
             "n_shared",
-            [i for i in range(1, 4)],
+            [i for i in range(1, 3)],
         )
 
     return space
@@ -336,6 +335,16 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
 def create_model_parameters(
     args, feature_eng="numerai", ml_method="lightgbm-gbdt", seed=0
 ):
+
+    ## Check GPU-supported
+    import subprocess
+
+    try:
+        subprocess.check_output("nvidia-smi")
+        GPU_enabled = True
+    except Exception:  # this command not being found can raise quite a few different errors depending on the configuration
+        GPU_enabled = False
+
     ## Feature Engineering
     if feature_eng == "numerai":
         feature_eng_parameters = {
@@ -379,6 +388,9 @@ def create_model_parameters(
             "boosting": "gbdt",
         }
 
+        if GPU_enabled:
+            tabular_hyper["device"] = "gpu"
+
         for key in [
             "n_estimators",
             "max_depth",
@@ -394,7 +406,7 @@ def create_model_parameters(
         ]:
             tabular_hyper[key] = args[key]
 
-    ## lightgbm-gbdt
+    ## lightgbm-dart
     if ml_method == "lightgbm-dart":
         tabular_hyper = {
             "seed": seed,
@@ -402,6 +414,9 @@ def create_model_parameters(
             "verbose": 0,
             "boosting": "dart",
         }
+
+        if GPU_enabled:
+            tabular_hyper["device"] = "gpu"
 
         for key in [
             "n_estimators",
@@ -431,7 +446,6 @@ def create_model_parameters(
             "max_epochs",
             "patience",
             "model_type",
-            "layers",
             "out_ff_layers",
             "num_heads",
             "num_attn_blocks",

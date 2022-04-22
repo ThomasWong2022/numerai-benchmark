@@ -259,6 +259,7 @@ def score_numerai(
         if debug:
             print(output)
     correlations_by_era = pd.DataFrame.from_records(correlations_by_era)
+    prediction_df["model_name"] = modelname
     correlations_by_era["model_name"] = modelname
     return prediction_df, correlations_by_era
 
@@ -460,11 +461,8 @@ def numerai_factor_portfolio(
 
 
 def dynamic_feature_neutralisation(
+    prediction_df,
     features_raw,
-    targets,
-    groups,
-    trained_model,
-    parameters,
     correlation_matrix,
     features_optimizer=None,
     modelname="sample",
@@ -486,19 +484,6 @@ def dynamic_feature_neutralisation(
 
     fm_max_index = factor_momentum.index.max()
     fm_min_index = factor_momentum.index.min()
-
-    ## Get Un-neutralised predictions
-    prediction_df = predict_numerai(
-        features_raw,
-        targets,
-        groups,
-        trained_model,
-        parameters,
-        modelname,
-        gbm_start_iteration,
-        era_col,
-        debug,
-    )
 
     ##
     factor_momentum_eras = factor_momentum.unstack(level=0).reset_index()
