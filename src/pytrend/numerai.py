@@ -61,7 +61,7 @@ def load_numerai_data(
     df_raw = pd.read_parquet(filename)
 
     ## Work Around for live with era with unknown era
-    df_raw[era_col] = df_raw[era_col].replace("X", "9998")
+    df_raw[era_col] = df_raw[era_col].replace("X", "9999")
 
     ## Downsample Data
     df_raw = df_raw[(df_raw[era_col] >= startera) & (df_raw[era_col] <= endera)]
@@ -169,6 +169,7 @@ def predict_numerai(
     elif parameters["parameters"]["model"]["tabular_model"] in [
         "pytorch-tabular-tabtransformer",
         "pytorch-tabular-node",
+        "pytorch-tabular-categoryembedding",
     ]:
         predictions_raw = trained_model.predict(features)[
             f"{target_col[0]}_prediction"
@@ -320,7 +321,7 @@ def score_numerai_multiple(
             prediction_df,
             features,
             riskiest_features,
-            proportion,
+            0,
             modelname,
             target_col_name=target_col[0],
             era_col=era_col,

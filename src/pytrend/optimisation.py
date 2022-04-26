@@ -263,6 +263,42 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
             [i for i in range(2, 6)],
         )
 
+    if ml_method == "pytorch-tabular-categoryembedding":
+        space["batch_size"] = hp.choice(
+            "batch_size",
+            [512 * i for i in range(1, 15)],
+        )
+        space["max_epochs"] = hp.choice(
+            "max_epochs",
+            [25 * i for i in range(1, 25)],
+        )
+        space["patience"] = hp.choice(
+            "patience",
+            [10 * i for i in range(1, 6)],
+        )
+        space["model_type"] = hp.choice(
+            "model_type",
+            [
+                "CategoryEmbedding",
+            ],
+        )
+        space["layers"] = hp.choice(
+            "layers",
+            [
+                "1024-256-64",
+                "1024-1024-1024",
+                "256-256-256",
+                "64-64-64",
+                "1024-1024",
+                "256-256",
+                "1024-64",
+            ],
+        )
+        space["dropout"] = hp.choice(
+            "dropout",
+            [i * 0.1 for i in range(0, 8)],
+        )
+
     if ml_method == "pytorch-tabular-node":
         space["batch_size"] = hp.choice(
             "batch_size",
@@ -449,6 +485,22 @@ def create_model_parameters(
             "out_ff_layers",
             "num_heads",
             "num_attn_blocks",
+        ]:
+            tabular_hyper[key] = args[key]
+
+    ## pytorch-tabular
+    if ml_method == "pytorch-tabular-categoryembedding":
+        tabular_hyper = {
+            "seed": seed,
+        }
+
+        for key in [
+            "batch_size",
+            "max_epochs",
+            "patience",
+            "model_type",
+            "layers",
+            "dropout",
         ]:
             tabular_hyper[key] = args[key]
 

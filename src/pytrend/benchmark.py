@@ -88,6 +88,7 @@ def save_best_model(model, model_type, outputpath):
         "pytorch-tabular",  ## Backward Comptabile
         "pytorch-tabular-tabtransformer",
         "pytorch-tabular-node",
+        "pytorch-tabular-categoryembedding",
     ]:
         ## Save at a folder
         model.save_model(outputpath)
@@ -121,6 +122,7 @@ def load_best_model(model_type, outputpath):
         "pytorch-tabular",  ## Backward Comptabile
         "pytorch-tabular-tabtransformer",
         "pytorch-tabular-node",
+        "pytorch-tabular-categoryembedding",
     ]:
         ## Save at a folder
         from pytorch_tabular import TabularModel
@@ -344,6 +346,7 @@ def benchmark_neural_model(
     if tabular_model in [
         "pytorch-tabular-tabtransformer",
         "pytorch-tabular-node",
+        "pytorch-tabular-categoryembedding",
     ]:
 
         ## Create Configurations
@@ -471,6 +474,7 @@ def benchmark_neural_model(
     if tabular_model in [
         "pytorch-tabular-tabtransformer",
         "pytorch-tabular-node",
+        "pytorch-tabular-categoryembedding",
     ]:
         train = pd.concat([extracted_features_train, y_train], axis=1)
         if extracted_features_test is not None:
@@ -645,6 +649,7 @@ def benchmark_pipeline(
             "tabnet",
             "pytorch-tabular-tabtransformer",
             "pytorch-tabular-node",
+            "pytorch-tabular-categoryembedding",
         ]:
 
             ### Train Tabular Models
