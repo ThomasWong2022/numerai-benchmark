@@ -175,6 +175,57 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
             "gbm_start_iteration",
             [25 * i for i in range(0, 21)],
         )
+        
+    if ml_method == "lightgbm-goss":
+        space["n_estimators"] = hp.choice(
+            "n_estimators",
+            [32 * i for i in range(31, 129)],
+        )
+        space["learning_rate"] = hp.loguniform(
+            "learning_rate",
+            -6,
+            -3,
+        )
+        space["max_depth"] = hp.choice(
+            "max_depth",
+            [i for i in range(1, 9)],
+        )
+        space["num_leaves"] = hp.choice(
+            "num_leaves",
+            [32 * i for i in range(1, 11)],
+        )
+        space["min_child_samples"] = hp.choice(
+            "min_child_samples",
+            [64 * i for i in range(1, 11)],
+        )
+        space["lambda_l1"] = hp.loguniform(
+            "lambda_l1",
+            -6,
+            2,
+        )
+        space["lambda_l2"] = hp.loguniform(
+            "lambda_l2",
+            -6,
+            2,
+        )
+        space["colsample_bytree"] = hp.choice(
+            "colsample_bytree",
+            [0.05 * i for i in range(2, 16)],
+        )
+        space["subsample"] = hp.choice("subsample", [0.1 * i for i in range(2, 9)])
+        space["bagging_freq"] = hp.choice("bagging_freq", [5 * i for i in range(1, 6)])
+        space["top_rate"] = hp.choice("top_rate", [0.1 * i for i in range(2, 11)])
+        space["other_rate"] = hp.choice("other_rate", [0.1 * i for i in range(1, 11)])
+        space["early_stopping_rounds"] = hp.choice(
+            "early_stopping_rounds",
+            [10 * i for i in range(1, 11)],
+        )
+        space["gbm_start_iteration"] = hp.choice(
+            "gbm_start_iteration",
+            [25 * i for i in range(0, 21)],
+        )        
+        
+        
 
     if ml_method == "xgboost-gbtree":
         space["n_estimators"] = hp.choice(
@@ -320,11 +371,11 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
         )
         space["num_trees"] = hp.choice(
             "num_trees",
-            [5 * i for i in range(5, 15)],
+            [250 * i for i in range(1, 11)],
         )
         space["depth"] = hp.choice(
             "depth",
-            [i for i in range(2, 5)],
+            [i for i in range(1, 3)],
         )
 
     if ml_method == "tabnet":
@@ -470,6 +521,37 @@ def create_model_parameters(
             "skip_drop",
         ]:
             tabular_hyper[key] = args[key]
+            
+            
+    ## lightgbm-dart
+    if ml_method == "lightgbm-goss":
+        tabular_hyper = {
+            "seed": seed,
+            "n_jobs": -1,
+            "verbose": 0,
+            "boosting": "goss",
+        }
+
+        if GPU_enabled:
+            tabular_hyper["device"] = "gpu"
+
+        for key in [
+            "n_estimators",
+            "max_depth",
+            "num_leaves",
+            "min_child_samples",
+            "lambda_l1",
+            "lambda_l2",
+            "colsample_bytree",
+            "subsample",
+            "bagging_freq",
+            "learning_rate",
+            "early_stopping_rounds",
+            "top_rate",
+            "other_rate",
+        ]:
+            tabular_hyper[key] = args[key]            
+            
 
     ## pytorch-tabular
     if ml_method == "pytorch-tabular-tabtransformer":
