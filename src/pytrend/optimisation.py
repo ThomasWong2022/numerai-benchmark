@@ -212,10 +212,8 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
             "colsample_bytree",
             [0.05 * i for i in range(2, 16)],
         )
-        space["subsample"] = hp.choice("subsample", [0.1 * i for i in range(2, 9)])
-        space["bagging_freq"] = hp.choice("bagging_freq", [5 * i for i in range(1, 6)])
-        space["top_rate"] = hp.choice("top_rate", [0.1 * i for i in range(2, 11)])
-        space["other_rate"] = hp.choice("other_rate", [0.1 * i for i in range(1, 11)])
+        space["top_rate"] = hp.choice("top_rate", [0.1 * i for i in range(2, 7)])
+        space["other_rate"] = hp.choice("other_rate", [0.05 * i for i in range(1, 7)])
         space["early_stopping_rounds"] = hp.choice(
             "early_stopping_rounds",
             [10 * i for i in range(1, 11)],
@@ -296,13 +294,19 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
         space["out_ff_layers"] = hp.choice(
             "out_ff_layers",
             [
+                "4096-1024-256",
+                "2048-512-128",
                 "1024-256-64",
+                "4096-4096-4096",
+                "2048-2048-2048",
                 "1024-1024-1024",
                 "256-256-256",
                 "64-64-64",
+                "4096-4096",
+                "2048-2048",
                 "1024-1024",
                 "256-256",
-                "1024-64",
+                "64-64",
             ],
         )
         space["num_heads"] = hp.choice(
@@ -336,13 +340,19 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
         space["layers"] = hp.choice(
             "layers",
             [
+                "4096-1024-256",
+                "2048-512-128",
                 "1024-256-64",
+                "4096-4096-4096",
+                "2048-2048-2048",
                 "1024-1024-1024",
                 "256-256-256",
                 "64-64-64",
+                "4096-4096",
+                "2048-2048",
                 "1024-1024",
                 "256-256",
-                "1024-64",
+                "64-64",
             ],
         )
         space["dropout"] = hp.choice(
@@ -393,11 +403,11 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
         )
         space["n_d"] = hp.choice(
             "n_d",
-            [4 * i for i in range(1, 9)],
+            [4 * i for i in range(1, 5)],
         )
         space["n_a"] = hp.choice(
             "n_a",
-            [4 * i for i in range(1, 9)],
+            [4 * i for i in range(1, 5)],
         )
         space["n_steps"] = hp.choice(
             "n_steps",
@@ -543,8 +553,6 @@ def create_model_parameters(
             "lambda_l1",
             "lambda_l2",
             "colsample_bytree",
-            "subsample",
-            "bagging_freq",
             "learning_rate",
             "early_stopping_rounds",
             "top_rate",

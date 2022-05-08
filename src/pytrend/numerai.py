@@ -402,7 +402,7 @@ def numerai_factor_portfolio(
     target_col_name=None,
     era_col="era",
     correlation_matrix=None,
-    gap=16,
+    gap=6,
     lookback=52,
 ):
 
@@ -470,7 +470,7 @@ def dynamic_feature_neutralisation(
     gbm_start_iteration=None,
     era_col="era",
     cutoff=420,
-    gap=16,
+    gap=6,
     lookback=52,
     proportion=1,
     debug=False,

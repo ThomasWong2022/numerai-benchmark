@@ -37,22 +37,25 @@ from catboost import CatBoostRegressor
 from pytorch_tabnet.tab_model import TabNetRegressor
 
 ## Pytorch_tabular
-from pytorch_tabular import TabularModel
-from pytorch_tabular.config import (
-    DataConfig,
-    OptimizerConfig,
-    TrainerConfig,
-    ExperimentConfig,
-)
+try:
+    from pytorch_tabular import TabularModel
+    from pytorch_tabular.config import (
+        DataConfig,
+        OptimizerConfig,
+        TrainerConfig,
+        ExperimentConfig,
+    )
 
-from pytorch_tabular.models import (
-    CategoryEmbeddingModelConfig,
-    AutoIntConfig,
-)
-from pytorch_tabular.models import (
-    TabTransformerConfig,
-    NodeConfig,
-)
+    from pytorch_tabular.models import (
+        CategoryEmbeddingModelConfig,
+        AutoIntConfig,
+    )
+    from pytorch_tabular.models import (
+        TabTransformerConfig,
+        NodeConfig,
+    )
+except:
+    pass 
 
 
 import lightgbm
@@ -378,7 +381,7 @@ def benchmark_neural_model(
             model_config = CategoryEmbeddingModelConfig(
                 task="regression",
                 target_range=[
-                    (-0.5, 0.5),
+                    (-0.5, 0.5) for i in range(len(list(y_train.columns)))
                 ],  ## ranking problem
                 batch_norm_continuous_input=False,
                 layers=tabular_hyper.get("layers", "1024-256-64"),
@@ -390,7 +393,7 @@ def benchmark_neural_model(
             model_config = TabTransformerConfig(
                 task="regression",
                 target_range=[
-                    (-0.5, 0.5),
+                    (-0.5, 0.5) for i in range(len(list(y_train.columns)))
                 ],  ## ranking problem
                 out_ff_layers=tabular_hyper.get("out_ff_layers", "1024-256-64"),
                 out_ff_activation=tabular_hyper.get("out_ff_activation", "LeakyReLU"),
@@ -407,7 +410,7 @@ def benchmark_neural_model(
             model_config = AutoIntConfig(
                 task="regression",
                 target_range=[
-                    (-0.5, 0.5),
+                    (-0.5, 0.5) for i in range(len(list(y_train.columns)))
                 ],  ## ranking problem
                 layers=tabular_hyper.get("layers", "1024-256-64"),
                 activation=tabular_hyper.get("activation", "LeakyReLU"),
@@ -424,7 +427,7 @@ def benchmark_neural_model(
             model_config = NodeConfig(
                 task="regression",
                 target_range=[
-                    (-0.5, 0.5),
+                    (-0.5, 0.5) for i in range(len(list(y_train.columns)))
                 ],  ## ranking problem
                 num_trees=tabular_hyper.get("num_trees", 100),
                 depth=tabular_hyper.get("depth", 6),

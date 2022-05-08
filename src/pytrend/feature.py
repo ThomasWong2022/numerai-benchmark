@@ -28,7 +28,11 @@ from sklearn.base import TransformerMixin, BaseEstimator
 
 ## Feature Engineering packages
 from sklearn.decomposition import PCA
-import iisignature as iis
+
+try:
+    import iisignature as iis
+except:
+    pass 
 
 
 ### Feature Union that persists transformer history for online learning and supports multi-processing

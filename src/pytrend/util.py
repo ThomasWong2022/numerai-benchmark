@@ -49,7 +49,10 @@ def strategy_metrics(strategy, interval=1, numerai=True):
         portfolio = strategy.cumsum()
     else:
         portfolio = (1 + strategy).cumprod()
-    dd = (portfolio - portfolio.cummax()) / portfolio.cummax()
+    if numerai:    
+        dd = (portfolio - portfolio.cummax())
+    else:
+        dd = (portfolio - portfolio.cummax()) / portfolio.cummax()
     results["max_drawdown"] = -1 * dd.cummin().min()
     if results["max_drawdown"] > 0:
         results["RMDD"] = results["mean"] / results["max_drawdown"]
