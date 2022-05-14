@@ -20,6 +20,7 @@
 import pandas as pd
 import numpy as np
 import joblib, json, os, gc
+import itertools
 
 from hyperopt import hp, fmin, tpe, space_eval, STATUS_OK, Trials
 
@@ -425,6 +426,32 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
             "n_shared",
             [i for i in range(1, 3)],
         )
+        
+    if ml_method == "Numerai-MLP":
+        space["batch_size"] = hp.choice(
+            "batch_size",
+            [4096 * i for i in range(1, 5)],
+        )
+        space["max_epochs"] = hp.choice(
+            "max_epochs",
+            [10 * i for i in range(1, 25)],
+        )
+        space["patience"] = hp.choice(
+            "patience",
+            [5 * i for i in range(1, 6)],
+        )
+        space["dropout"] = hp.choice(
+            "dropout",
+            [i * 0.1 for i in range(0, 8)],
+        )
+        ## MLP layers combos 
+        neuron_combos = list()
+        for x in range(2,5):
+            neuron_combos.extend(list(itertools.product(*[[256*2**i for i in range(0,4)] for g in range(x)])))
+        space["neurons"] = hp.choice(
+            "neurons",
+            neuron_combos,
+        )        
 
     return space
 
@@ -627,6 +654,22 @@ def create_model_parameters(
             "n_shared",
         ]:
             tabular_hyper[key] = args[key]
+            
+    if ml_method == "Numerai-MLP":
+        tabular_hyper = {
+            "seed": seed,
+        }
+
+        for key in [
+            "batch_size",
+            "max_epochs",
+            "patience",
+            "dropout",
+            "neurons",
+        ]:
+            tabular_hyper[key] = args[key]           
+            
+            
 
     ### Additional Hyper-parameters in .fit and .prediction
     if ml_method in [
@@ -794,7 +837,7 @@ def train_best_model(
         debug=False,
     )
 
-    if not ml_method in ["pytorch-tabular"]:
+    if not ml_method in ["pytorch-tabular","pytorch-tabular-categoryembedding",]:
         output_model_path = f"{output_folder}/{ml_method}_seed{seed}.model"
     else:
         output_model_path = f"{output_folder}/{ml_method}_seed{seed}"

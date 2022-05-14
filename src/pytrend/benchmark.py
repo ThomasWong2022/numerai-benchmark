@@ -64,6 +64,111 @@ import catboost
 import pytorch_tabnet
 
 
+
+### PyTorch Lightning 
+
+import torch
+from torch import nn
+import torch.nn.functional as F
+from torch.utils.data import DataLoader, random_split, TensorDataset
+import pytorch_lightning as pl
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+from pytorch_lightning import Trainer, seed_everything
+
+
+class MLP(pl.LightningModule):
+  
+    def __init__(self, config):
+        
+        super().__init__()
+        self.config = config 
+        
+        neuron_sizes = config.get('neurons', [256,256])
+        
+        self.layers = nn.Sequential(
+          nn.Linear(config['input_shape'], neuron_sizes[0]),
+          nn.ReLU(),
+          nn.Dropout(config.get('dropout',0.5)))        
+        
+        for i in range(1,len(neuron_sizes),):
+            self.layers.append(nn.Linear(neuron_sizes[i-1], neuron_sizes[i]),)
+            self.layers.append(nn.ReLU())
+            self.layers.append(nn.Dropout(config.get('dropout',0.5)))
+        
+        self.layers.append(nn.Linear(neuron_sizes[-1], config['output_shape']))
+        
+        
+        self.save_hyperparameters()
+
+    def forward(self, x):
+        return self.layers(x.float())
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self.layers(x.float())
+        loss = F.mse_loss(y_hat, y.float())
+        self.log('train_loss', loss)
+        return loss
+    
+    
+    def validation_step(self, batch, batch_idx):       
+        x, y = batch
+        y_hat = self.layers(x.float())
+        loss = F.mse_loss(y_hat, y.float())
+        self.log('val_loss', loss)
+        
+    def predict_step(self, batch, batch_idx):
+        return self(batch)
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=1e-4)
+        return optimizer
+
+
+class NumeraiMLP():
+    
+    def __init__(self, config): 
+        
+        self.config = config
+        seed_everything(config.get('seed',0), workers=True)
+        
+    def train(self, X_train, y_train, X_validate, y_validate): 
+        
+        self.config['input_shape'] = X_train.shape[1]
+        self.config['output_shape'] = y_train.shape[1]
+        
+        self.network = MLP(self.config)
+        
+        early_stop_callback = EarlyStopping(monitor="val_loss", min_delta=0.00, patience=self.config.get('patience',10),
+                                            verbose=False, mode="min")
+
+        ## Assume X is a DataFrame, assume y is a DataFrame or pd Series 
+        dataset_train = TensorDataset(torch.from_numpy(X_train.values),torch.from_numpy(y_train.values))
+        dataloader_train = DataLoader(dataset_train, batch_size=self.config.get('batch_size',4096))
+        dataset_validate = TensorDataset(torch.from_numpy(X_validate.values),torch.from_numpy(y_validate.values))
+        dataloader_validate = DataLoader(dataset_validate, batch_size=self.config.get('batch_size',4096))
+        
+        ## Use GPU if possible 
+        self.trainer = pl.Trainer(accelerator='gpu', devices=1, deterministic=True,
+                                  auto_lr_find=True,  max_epochs=self.config.get('max_epochs',200), callbacks=[early_stop_callback])
+
+        self.trainer.fit(self.network, dataloader_train, dataloader_validate )
+   
+    
+    def predict(self,X):
+        self.network.eval()
+        with torch.no_grad():
+            predictions = self.network(torch.from_numpy(X.astype(np.float32).values))
+        return predictions.numpy()
+    
+    def load_model(self,checkpoint):
+        self.network = MLP.load_from_checkpoint(checkpoint)
+
+    def save_model(self,checkpoint):
+        self.trainer.save_checkpoint(checkpoint)    
+
+
+
 ### Persistence of ML models
 
 ### Save Best Model using method provided
@@ -94,6 +199,8 @@ def save_best_model(model, model_type, outputpath):
         "pytorch-tabular-categoryembedding",
     ]:
         ## Save at a folder
+        model.save_model(outputpath)
+    if model_type in ["Numerai-MLP",]:
         model.save_model(outputpath)
     return None
 
@@ -129,8 +236,10 @@ def load_best_model(model_type, outputpath):
     ]:
         ## Save at a folder
         from pytorch_tabular import TabularModel
-
         reg = TabularModel.load_from_checkpoint(outputpath)
+    if model_type in ["Numerai-MLP",]:
+        reg = NumeraiMLP(config=dict())
+        reg.load_model(outputpath)
     return reg
 
 
@@ -442,6 +551,18 @@ def benchmark_neural_model(
             optimizer_config=optimizer_config,
             trainer_config=trainer_config,
         )
+        
+    
+    if tabular_model in [
+        "Numerai-MLP",
+    ]:
+        config = dict()
+        for key in ['neurons', 'dropout','max_epochs','patience','batch_size','seed',]:
+            config[key] = tabular_hyper.get(key)
+        reg =  NumeraiMLP(config=config)
+    
+    #### Fit Models 
+        
 
     if tabular_model in [
         "tabnet",
@@ -455,7 +576,7 @@ def benchmark_neural_model(
                 patience=tabnet_fit_hyper.get("patience", 10),
                 batch_size=tabnet_fit_hyper.get("batch_size", 2048),
                 virtual_batch_size=int(tabnet_fit_hyper.get("batch_size") / 4),
-                num_workers=5,
+                num_workers=25,
             )
         else:
             reg.fit(
@@ -465,7 +586,7 @@ def benchmark_neural_model(
                 patience=tabnet_fit_hyper.get("patience", 10),
                 batch_size=tabnet_fit_hyper.get("batch_size", 2048),
                 virtual_batch_size=int(tabnet_fit_hyper.get("batch_size") / 4),
-                num_workers=5,
+                num_workers=25,
             )
 
         if extracted_features_test is not None:
@@ -496,6 +617,15 @@ def benchmark_neural_model(
             return reg, pred[f"{list(y_train.columns)[0]}_prediction"].values
         else:
             return reg
+        
+    if tabular_model in [
+        "Numerai-MLP",
+    ]:
+        reg.train(extracted_features_train, y_train, extracted_features_test, y_test)
+        pred = reg.predict(extracted_features_test)
+        return reg, pred
+        
+        
 
 
 ### Run ML pipeline for temporal tabular data
@@ -653,6 +783,7 @@ def benchmark_pipeline(
             "pytorch-tabular-tabtransformer",
             "pytorch-tabular-node",
             "pytorch-tabular-categoryembedding",
+            "Numerai-MLP",
         ]:
 
             ### Train Tabular Models
