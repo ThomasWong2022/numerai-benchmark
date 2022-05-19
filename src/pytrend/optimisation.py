@@ -457,7 +457,7 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
 
 
 def create_model_parameters(
-    args, feature_eng="numerai", ml_method="lightgbm-gbdt", seed=0
+    args, feature_eng="numerai", ml_method="lightgbm-gbdt", seed=0, gpu_device_id=0,
 ):
 
     ## Check GPU-supported
@@ -514,6 +514,7 @@ def create_model_parameters(
 
         if GPU_enabled:
             tabular_hyper["device"] = "gpu"
+            tabular_hyper["gpu_device_id"] = gpu_device_id
 
         for key in [
             "n_estimators",
@@ -541,6 +542,7 @@ def create_model_parameters(
 
         if GPU_enabled:
             tabular_hyper["device"] = "gpu"
+            tabular_hyper["gpu_device_id"] = gpu_device_id
 
         for key in [
             "n_estimators",
@@ -571,6 +573,7 @@ def create_model_parameters(
 
         if GPU_enabled:
             tabular_hyper["device"] = "gpu"
+            tabular_hyper["gpu_device_id"] = gpu_device_id
 
         for key in [
             "n_estimators",
@@ -702,6 +705,7 @@ def hyperopt_search(
     ml_method="lightgbm-gbdt",
     max_evals=10,
     model_params=None,
+    gpu_device_id=0,
 ):
 
     if model_params is None:
@@ -720,7 +724,7 @@ def hyperopt_search(
             tabular_hyper,
             additional_hyper,
         ) = create_model_parameters(
-            args, feature_eng=feature_eng, ml_method=ml_method, seed=seed
+            args, feature_eng=feature_eng, ml_method=ml_method, seed=seed, gpu_device_id=gpu_device_id,
         )
 
         print(
@@ -806,13 +810,14 @@ def train_best_model(
     ml_method="lightgbm-gbdt",
     output_folder="numerai_models",
     model_params=None,
+    gpu_device_id=0,
 ):
 
     if not os.path.exists(f"{output_folder}/"):
         os.mkdir(f"{output_folder}/")
 
     feature_eng_parameters, tabular_hyper, additional_hyper = create_model_parameters(
-        best_parameters, feature_eng=feature_eng, ml_method=ml_method, seed=seed
+        best_parameters, feature_eng=feature_eng, ml_method=ml_method, seed=seed, gpu_device_id=gpu_device_id,
     )
 
     if model_params is None:

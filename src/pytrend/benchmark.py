@@ -447,7 +447,7 @@ def benchmark_neural_model(
 
             reg = TabNetRegressor(**tabnet_hyper)
         else:
-            tabnet_hyper = {"n_d": 8, "n_a": 8, "seed": 0, "device_name": "cpu"}
+            tabnet_hyper = {"n_d": 8, "n_a": 8, "seed": 0, }
             tabnet_fit_hyper = {
                 "max_epochs": 10,
                 "patience": 10,
