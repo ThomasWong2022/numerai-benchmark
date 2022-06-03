@@ -64,11 +64,11 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
     if feature_eng == "numerai-pca":
         space["no_pca_features"] = hp.choice(
             "no_pca_features",
-            [5 * i for i in range(0, 21)],
+            [5 * i for i in range(0, 11)],
         )
         space["no_product_features"] = hp.choice(
             "no_product_features",
-            [20 * i for i in range(0, 1)],
+            [10 * i for i in range(0, 21)],
         )
         space["usesquare"] = hp.choice(
             "usesquare",
@@ -176,7 +176,7 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
             "gbm_start_iteration",
             [25 * i for i in range(0, 21)],
         )
-        
+
     if ml_method == "lightgbm-goss":
         space["n_estimators"] = hp.choice(
             "n_estimators",
@@ -222,9 +222,7 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
         space["gbm_start_iteration"] = hp.choice(
             "gbm_start_iteration",
             [25 * i for i in range(0, 21)],
-        )        
-        
-        
+        )
 
     if ml_method == "xgboost-gbtree":
         space["n_estimators"] = hp.choice(
@@ -426,7 +424,7 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
             "n_shared",
             [i for i in range(1, 3)],
         )
-        
+
     if ml_method == "Numerai-MLP":
         space["batch_size"] = hp.choice(
             "batch_size",
@@ -444,20 +442,30 @@ def hyperopt_space(feature_eng="numerai", ml_method="lightgbm-gbdt"):
             "dropout",
             [i * 0.1 for i in range(0, 8)],
         )
-        ## MLP layers combos 
+        ## MLP layers combos
         neuron_combos = list()
-        for x in range(2,5):
-            neuron_combos.extend(list(itertools.product(*[[256*2**i for i in range(0,4)] for g in range(x)])))
+        for x in range(2, 5):
+            neuron_combos.extend(
+                list(
+                    itertools.product(
+                        *[[256 * 2 ** i for i in range(0, 4)] for g in range(x)]
+                    )
+                )
+            )
         space["neurons"] = hp.choice(
             "neurons",
             neuron_combos,
-        )        
+        )
 
     return space
 
 
 def create_model_parameters(
-    args, feature_eng="numerai", ml_method="lightgbm-gbdt", seed=0, gpu_device_id=0,
+    args,
+    feature_eng="numerai",
+    ml_method="lightgbm-gbdt",
+    seed=0,
+    gpu_device_id=0,
 ):
 
     ## Check GPU-supported
@@ -470,7 +478,10 @@ def create_model_parameters(
         GPU_enabled = False
 
     ## Feature Engineering
-    if feature_eng == "numerai":
+    if feature_eng in [
+        "numerai",
+        "numerai-pca",
+    ]:
         feature_eng_parameters = {
             "usesquare": args["usesquare"],
             "no_product_features": args["no_product_features"],
@@ -510,6 +521,7 @@ def create_model_parameters(
             "n_jobs": -1,
             "verbose": 0,
             "boosting": "gbdt",
+            "objective": "regression",
         }
 
         if GPU_enabled:
@@ -538,6 +550,7 @@ def create_model_parameters(
             "n_jobs": -1,
             "verbose": 0,
             "boosting": "dart",
+            "objective": "regression",
         }
 
         if GPU_enabled:
@@ -560,8 +573,7 @@ def create_model_parameters(
             "skip_drop",
         ]:
             tabular_hyper[key] = args[key]
-            
-            
+
     ## lightgbm-dart
     if ml_method == "lightgbm-goss":
         tabular_hyper = {
@@ -569,6 +581,7 @@ def create_model_parameters(
             "n_jobs": -1,
             "verbose": 0,
             "boosting": "goss",
+            "objective": "regression",
         }
 
         if GPU_enabled:
@@ -588,8 +601,7 @@ def create_model_parameters(
             "top_rate",
             "other_rate",
         ]:
-            tabular_hyper[key] = args[key]            
-            
+            tabular_hyper[key] = args[key]
 
     ## pytorch-tabular
     if ml_method == "pytorch-tabular-tabtransformer":
@@ -657,7 +669,7 @@ def create_model_parameters(
             "n_shared",
         ]:
             tabular_hyper[key] = args[key]
-            
+
     if ml_method == "Numerai-MLP":
         tabular_hyper = {
             "seed": seed,
@@ -670,9 +682,7 @@ def create_model_parameters(
             "dropout",
             "neurons",
         ]:
-            tabular_hyper[key] = args[key]           
-            
-            
+            tabular_hyper[key] = args[key]
 
     ### Additional Hyper-parameters in .fit and .prediction
     if ml_method in [
@@ -714,6 +724,7 @@ def hyperopt_search(
             "valid_splits": 1,
             "max_train_size": None,
             "gap": 52,
+            "cross_validation": "GroupedTimeSeriesSplit",
         }
 
     # define an objective function
@@ -724,7 +735,11 @@ def hyperopt_search(
             tabular_hyper,
             additional_hyper,
         ) = create_model_parameters(
-            args, feature_eng=feature_eng, ml_method=ml_method, seed=seed, gpu_device_id=gpu_device_id,
+            args,
+            feature_eng=feature_eng,
+            ml_method=ml_method,
+            seed=seed,
+            gpu_device_id=gpu_device_id,
         )
 
         print(
@@ -817,15 +832,20 @@ def train_best_model(
         os.mkdir(f"{output_folder}/")
 
     feature_eng_parameters, tabular_hyper, additional_hyper = create_model_parameters(
-        best_parameters, feature_eng=feature_eng, ml_method=ml_method, seed=seed, gpu_device_id=gpu_device_id,
+        best_parameters,
+        feature_eng=feature_eng,
+        ml_method=ml_method,
+        seed=seed,
+        gpu_device_id=gpu_device_id,
     )
 
     if model_params is None:
         model_params = {
-            "test_size": 52 * 2,
+            "test_size": 52 * 4,
             "valid_splits": 1,
             "max_train_size": None,
             "gap": 52,
+            "cross_validation": "GroupedTimeSeriesSplit",
         }
 
     (model_performance, trained_models, data, parameters,) = benchmark_pipeline(
@@ -842,7 +862,10 @@ def train_best_model(
         debug=False,
     )
 
-    if not ml_method in ["pytorch-tabular","pytorch-tabular-categoryembedding",]:
+    if not ml_method in [
+        "pytorch-tabular",
+        "pytorch-tabular-categoryembedding",
+    ]:
         output_model_path = f"{output_folder}/{ml_method}_seed{seed}.model"
     else:
         output_model_path = f"{output_folder}/{ml_method}_seed{seed}"

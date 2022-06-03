@@ -30,9 +30,12 @@ from .feature import benchmark_features_transform
 
 from sklearn.metrics import mean_squared_error
 
+from sklearn.model_selection import KFold, GroupKFold, GroupShuffleSplit
+
+
 ## Machine Learning packages
 from xgboost import XGBRegressor
-from lightgbm import LGBMRegressor
+from lightgbm import LGBMRegressor, LGBMClassifier
 from catboost import CatBoostRegressor
 from pytorch_tabnet.tab_model import TabNetRegressor
 
@@ -55,7 +58,7 @@ try:
         NodeConfig,
     )
 except:
-    pass 
+    pass
 
 
 import lightgbm
@@ -64,8 +67,7 @@ import catboost
 import pytorch_tabnet
 
 
-
-### PyTorch Lightning 
+### PyTorch Lightning
 
 import torch
 from torch import nn
@@ -77,27 +79,31 @@ from pytorch_lightning import Trainer, seed_everything
 
 
 class MLP(pl.LightningModule):
-  
     def __init__(self, config):
-        
+
         super().__init__()
-        self.config = config 
-        
-        neuron_sizes = config.get('neurons', [256,256])
-        
+        self.config = config
+
+        neuron_sizes = config.get("neurons", [256, 256])
+
         self.layers = nn.Sequential(
-          nn.Linear(config['input_shape'], neuron_sizes[0]),
-          nn.ReLU(),
-          nn.Dropout(config.get('dropout',0.5)))        
-        
-        for i in range(1,len(neuron_sizes),):
-            self.layers.append(nn.Linear(neuron_sizes[i-1], neuron_sizes[i]),)
+            nn.Linear(config["input_shape"], neuron_sizes[0]),
+            nn.ReLU(),
+            nn.Dropout(config.get("dropout", 0.5)),
+        )
+
+        for i in range(
+            1,
+            len(neuron_sizes),
+        ):
+            self.layers.append(
+                nn.Linear(neuron_sizes[i - 1], neuron_sizes[i]),
+            )
             self.layers.append(nn.ReLU())
-            self.layers.append(nn.Dropout(config.get('dropout',0.5)))
-        
-        self.layers.append(nn.Linear(neuron_sizes[-1], config['output_shape']))
-        
-        
+            self.layers.append(nn.Dropout(config.get("dropout", 0.5)))
+
+        self.layers.append(nn.Linear(neuron_sizes[-1], config["output_shape"]))
+
         self.save_hyperparameters()
 
     def forward(self, x):
@@ -107,16 +113,15 @@ class MLP(pl.LightningModule):
         x, y = batch
         y_hat = self.layers(x.float())
         loss = F.mse_loss(y_hat, y.float())
-        self.log('train_loss', loss)
+        self.log("train_loss", loss)
         return loss
-    
-    
-    def validation_step(self, batch, batch_idx):       
+
+    def validation_step(self, batch, batch_idx):
         x, y = batch
         y_hat = self.layers(x.float())
         loss = F.mse_loss(y_hat, y.float())
-        self.log('val_loss', loss)
-        
+        self.log("val_loss", loss)
+
     def predict_step(self, batch, batch_idx):
         return self(batch)
 
@@ -125,48 +130,64 @@ class MLP(pl.LightningModule):
         return optimizer
 
 
-class NumeraiMLP():
-    
-    def __init__(self, config): 
-        
+class NumeraiMLP:
+    def __init__(self, config):
+
         self.config = config
-        seed_everything(config.get('seed',0), workers=True)
-        
-    def train(self, X_train, y_train, X_validate, y_validate): 
-        
-        self.config['input_shape'] = X_train.shape[1]
-        self.config['output_shape'] = y_train.shape[1]
-        
+        seed_everything(config.get("seed", 0), workers=True)
+
+    def train(self, X_train, y_train, X_validate, y_validate):
+
+        self.config["input_shape"] = X_train.shape[1]
+        self.config["output_shape"] = y_train.shape[1]
+
         self.network = MLP(self.config)
-        
-        early_stop_callback = EarlyStopping(monitor="val_loss", min_delta=0.00, patience=self.config.get('patience',10),
-                                            verbose=False, mode="min")
 
-        ## Assume X is a DataFrame, assume y is a DataFrame or pd Series 
-        dataset_train = TensorDataset(torch.from_numpy(X_train.values),torch.from_numpy(y_train.values))
-        dataloader_train = DataLoader(dataset_train, batch_size=self.config.get('batch_size',4096))
-        dataset_validate = TensorDataset(torch.from_numpy(X_validate.values),torch.from_numpy(y_validate.values))
-        dataloader_validate = DataLoader(dataset_validate, batch_size=self.config.get('batch_size',4096))
-        
-        ## Use GPU if possible 
-        self.trainer = pl.Trainer(accelerator='gpu', devices=1, deterministic=True,
-                                  auto_lr_find=True,  max_epochs=self.config.get('max_epochs',200), callbacks=[early_stop_callback])
+        early_stop_callback = EarlyStopping(
+            monitor="val_loss",
+            min_delta=0.00,
+            patience=self.config.get("patience", 10),
+            verbose=False,
+            mode="min",
+        )
 
-        self.trainer.fit(self.network, dataloader_train, dataloader_validate )
-   
-    
-    def predict(self,X):
+        ## Assume X is a DataFrame, assume y is a DataFrame or pd Series
+        dataset_train = TensorDataset(
+            torch.from_numpy(X_train.values), torch.from_numpy(y_train.values)
+        )
+        dataloader_train = DataLoader(
+            dataset_train, batch_size=self.config.get("batch_size", 4096)
+        )
+        dataset_validate = TensorDataset(
+            torch.from_numpy(X_validate.values), torch.from_numpy(y_validate.values)
+        )
+        dataloader_validate = DataLoader(
+            dataset_validate, batch_size=self.config.get("batch_size", 4096)
+        )
+
+        ## Use GPU if possible
+        self.trainer = pl.Trainer(
+            accelerator="gpu",
+            devices=1,
+            deterministic=True,
+            auto_lr_find=True,
+            max_epochs=self.config.get("max_epochs", 200),
+            callbacks=[early_stop_callback],
+        )
+
+        self.trainer.fit(self.network, dataloader_train, dataloader_validate)
+
+    def predict(self, X):
         self.network.eval()
         with torch.no_grad():
             predictions = self.network(torch.from_numpy(X.astype(np.float32).values))
         return predictions.numpy()
-    
-    def load_model(self,checkpoint):
+
+    def load_model(self, checkpoint):
         self.network = MLP.load_from_checkpoint(checkpoint)
 
-    def save_model(self,checkpoint):
-        self.trainer.save_checkpoint(checkpoint)    
-
+    def save_model(self, checkpoint):
+        self.trainer.save_checkpoint(checkpoint)
 
 
 ### Persistence of ML models
@@ -200,7 +221,9 @@ def save_best_model(model, model_type, outputpath):
     ]:
         ## Save at a folder
         model.save_model(outputpath)
-    if model_type in ["Numerai-MLP",]:
+    if model_type in [
+        "Numerai-MLP",
+    ]:
         model.save_model(outputpath)
     return None
 
@@ -236,8 +259,11 @@ def load_best_model(model_type, outputpath):
     ]:
         ## Save at a folder
         from pytorch_tabular import TabularModel
+
         reg = TabularModel.load_from_checkpoint(outputpath)
-    if model_type in ["Numerai-MLP",]:
+    if model_type in [
+        "Numerai-MLP",
+    ]:
         reg = NumeraiMLP(config=dict())
         reg.load_model(outputpath)
     return reg
@@ -267,7 +293,10 @@ def benchmark_tree_model(
         "lightgbm-rf",
     ]:
         if tabular_hyper:
-            reg = LGBMRegressor(**tabular_hyper)
+            if tabular_hyper.get("objective", "regression") == "cross_entropy":
+                reg = LGBMClassifier(**tabular_hyper)
+            else:
+                reg = LGBMRegressor(**tabular_hyper)
         else:
             tabular_hyper = {
                 "n_estimators": 150,
@@ -335,7 +364,14 @@ def benchmark_tree_model(
                 additional_hyper.get("gbm_start_iteration", 0),
                 int(reg.booster_.num_trees() // 2),
             )
-            pred = reg.predict(extracted_features_test, start_iteration=valid_iteration)
+            if tabular_hyper.get("objective", "regression") == "cross_entropy":
+                pred = reg.booster_.predict(
+                    extracted_features_test, start_iteration=valid_iteration
+                )
+            else:
+                pred = reg.predict(
+                    extracted_features_test, start_iteration=valid_iteration
+                )
             return reg, pred
         else:
             return reg
@@ -447,7 +483,11 @@ def benchmark_neural_model(
 
             reg = TabNetRegressor(**tabnet_hyper)
         else:
-            tabnet_hyper = {"n_d": 8, "n_a": 8, "seed": 0, }
+            tabnet_hyper = {
+                "n_d": 8,
+                "n_a": 8,
+                "seed": 0,
+            }
             tabnet_fit_hyper = {
                 "max_epochs": 10,
                 "patience": 10,
@@ -551,18 +591,23 @@ def benchmark_neural_model(
             optimizer_config=optimizer_config,
             trainer_config=trainer_config,
         )
-        
-    
+
     if tabular_model in [
         "Numerai-MLP",
     ]:
         config = dict()
-        for key in ['neurons', 'dropout','max_epochs','patience','batch_size','seed',]:
+        for key in [
+            "neurons",
+            "dropout",
+            "max_epochs",
+            "patience",
+            "batch_size",
+            "seed",
+        ]:
             config[key] = tabular_hyper.get(key)
-        reg =  NumeraiMLP(config=config)
-    
-    #### Fit Models 
-        
+        reg = NumeraiMLP(config=config)
+
+    #### Fit Models
 
     if tabular_model in [
         "tabnet",
@@ -617,15 +662,13 @@ def benchmark_neural_model(
             return reg, pred[f"{list(y_train.columns)[0]}_prediction"].values
         else:
             return reg
-        
+
     if tabular_model in [
         "Numerai-MLP",
     ]:
         reg.train(extracted_features_train, y_train, extracted_features_test, y_test)
         pred = reg.predict(extracted_features_test)
         return reg, pred
-        
-        
 
 
 ### Run ML pipeline for temporal tabular data
@@ -660,17 +703,31 @@ def benchmark_pipeline(
             "test_size": 52,
             "max_train_size": 52,
             "gap": 52,
+            "cross_validation": "GroupedTimeSeriesSplit",
         }
 
     ## Cross Validation split
-    tscv = GroupedTimeSeriesSplit(
-        valid_splits=model_params["valid_splits"],
-        test_size=model_params["test_size"],
-        max_train_size=model_params["max_train_size"],
-        gap=model_params["gap"],
-        debug=debug,
-    )
-
+    if model_params["cross_validation"] == "GroupedTimeSeriesSplit":
+        tscv = GroupedTimeSeriesSplit(
+            valid_splits=model_params["valid_splits"],
+            test_size=model_params["test_size"],
+            max_train_size=model_params["max_train_size"],
+            gap=model_params["gap"],
+            debug=debug,
+        )
+    elif model_params["cross_validation"] == "GroupShuffleSplit":
+        tscv = GroupShuffleSplit(
+            n_splits=model_params["n_splits"],
+            test_size=model_params["test_size"],
+            train_size=model_params["train_size"],
+            random_state=model_params.get("random_state", 0),
+        )
+    else:
+        tscv = KFold(
+            n_splits=model_params["n_splits"],
+            shuffle=True,
+            random_state=model_params.get("random_state", 0),
+        )
     model_no = 1
     model_performance = dict()
     trained_models = dict()
@@ -681,18 +738,35 @@ def benchmark_pipeline(
 
         model_name = "{}_{}_{}".format(feature_eng, tabular_model, model_no)
         ## Get Trained and Test Data
-        X_train, X_test = features.loc[train_index, :], features.loc[test_index, :]
-        y_train, y_test = target.loc[train_index, :], target.loc[test_index, :]
-        ## Data Weights are pd Series
-        weights_train, weights_test = (
-            weights.loc[train_index],
-            weights.loc[test_index],
-        )
-        ## Group Labels are pd Series
-        group_train, group_test = (
-            groups.loc[train_index],
-            groups.loc[test_index],
-        )
+        try:
+            X_train, X_test = features.loc[train_index, :], features.loc[test_index, :]
+            y_train, y_test = target.loc[train_index, :], target.loc[test_index, :]
+            ## Data Weights are pd Series
+            weights_train, weights_test = (
+                weights.loc[train_index],
+                weights.loc[test_index],
+            )
+            ## Group Labels are pd Series
+            group_train, group_test = (
+                groups.loc[train_index],
+                groups.loc[test_index],
+            )
+        except:
+            ## KFold
+            X_train, X_test = (
+                features.iloc[train_index, :],
+                features.iloc[test_index, :],
+            )
+            y_train, y_test = target.iloc[train_index, :], target.iloc[test_index, :]
+            weights_train, weights_test = (
+                weights.iloc[train_index],
+                weights.iloc[test_index],
+            )
+            group_train, group_test = (
+                groups.iloc[train_index],
+                groups.iloc[test_index],
+            )
+
         ##
         model_params["feature_columns"] = features.columns
         model_params["target_columns"] = target.columns
@@ -818,10 +892,10 @@ def benchmark_pipeline(
         )
 
         #### Training Dates
-        model_params["train_start"] = group_train[0]
-        model_params["train_end"] = group_train[-1]
-        model_params["validation_start"] = group_test[0]
-        model_params["validation_end"] = group_test[-1]
+        model_params["train_start"] = group_train.iloc[0]
+        model_params["train_end"] = group_train.iloc[-1]
+        model_params["validation_start"] = group_test.iloc[0]
+        model_params["validation_end"] = group_test.iloc[-1]
         parameters[model_name]["model"] = model_params.copy()
 
         ### Save model performance
@@ -844,6 +918,8 @@ def benchmark_pipeline(
             print(
                 model_performance[model_name],
                 model_params,
+                y_test.head(),
+                pred.head(),
             )
 
         ## Clean up temp files produced by pytorch-tabular

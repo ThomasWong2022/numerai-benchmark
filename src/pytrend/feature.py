@@ -32,7 +32,7 @@ from sklearn.decomposition import PCA
 try:
     import iisignature as iis
 except:
-    pass 
+    pass
 
 
 ### Feature Union that persists transformer history for online learning and supports multi-processing

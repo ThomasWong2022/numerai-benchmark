@@ -35,6 +35,12 @@ def create_era_index(
     replace_col=False,
     era_col="era",
 ):
+    delete_col = False
+    if not era_col in df.columns:
+        df[era_col] = df.index
+        delete_col = True
+    if df[era_col].dtypes == "<M8[ns]":
+        return df
     mapped_era = [
         baseline + datetime.timedelta(days=7 * (x - 1)) for x in df[era_col].apply(int)
     ]
@@ -42,6 +48,8 @@ def create_era_index(
         df.index = mapped_era
     else:
         df[era_col] = mapped_era
+    if delete_col:
+        df.drop(era_col, axis=1, inplace=True)
     return df
 
 
@@ -256,6 +264,11 @@ def score_numerai(
             prediction_df.loc[df.index, "neutralised_prediction"] = df[
                 "neutralised_prediction"
             ].rank(pct=True)
+        else:
+            output["neutralised_correlation"] = output["correlation"]
+            prediction_df.loc[df.index, "neutralised_prediction"] = df[
+                prediction_col
+            ].rank(pct=True)
         correlations_by_era.append(output)
         if debug:
             print(output)
@@ -398,10 +411,11 @@ def numerai_feature_correlation_matrix(
 
 def numerai_factor_portfolio(
     rawdata,
+    correlation_matrix=None,
     feature_col=None,
     target_col_name=None,
     era_col="era",
-    correlation_matrix=None,
+    cutoff=420,
     gap=6,
     lookback=52,
 ):
@@ -416,49 +430,139 @@ def numerai_factor_portfolio(
             rawdata, feature_col, target_col_name
         )
 
-    ## Equal Weighted Portfolio
-    portfolio_predictions = rawdata[[era_col, target_col_name]]
-    portfolio_predictions["prediction"] = rawdata[feature_col].mean(axis=1)
-    prediction_ew, correlations_ew = score_numerai(
-        portfolio_predictions,
-        rawdata[feature_col],
-        None,
-        proportion=0,
-        modelname="equal_weighted",
-        target_col_name=target_col_name,
-    )
-
     ## Factor Momentum Portfolio
     factor_momentum = correlation_matrix.shift(gap).fillna(0).rolling(lookback).mean()
+    factor_volatility = correlation_matrix.shift(gap).fillna(0).rolling(lookback).std()
     fm_max_index = factor_momentum.index.max()
     fm_min_index = factor_momentum.index.min()
 
-    portfolio_predictions = rawdata[[era_col, target_col_name]]
-    portfolio_predictions = portfolio_predictions[
-        (portfolio_predictions[era_col] <= fm_max_index)
-        & (portfolio_predictions[era_col] >= fm_min_index)
-    ]
+    factor_momentum_eras = factor_momentum.unstack(level=0).reset_index()
+    factor_momentum_eras.columns = ["feature_name", "era", "momentum"]
+    factor_volatility_eras = factor_volatility.unstack(level=0).reset_index()
+    factor_volatility_eras.columns = ["feature_name", "era", "volatility"]
+
+    prediction_dynamic = list()
+    correlation_dynamic = list()
+
     for i, df in rawdata.groupby(era_col):
+
         if (i <= fm_max_index) & (i >= fm_min_index):
-            per_era = df[feature_col] * np.sign(factor_momentum.loc[i])
-            portfolio_predictions.loc[df.index, "prediction"] = per_era.mean(axis=1)
 
-    prediction_fm, correlations_fm = score_numerai(
-        portfolio_predictions,
-        rawdata[feature_col],
-        None,
-        proportion=0,
-        modelname="factor_momentum",
-        target_col_name=target_col_name,
-    )
+            ## Equal Weighted
+            portfolio_predictions = df[[era_col, target_col_name]]
+            portfolio_predictions["prediction"] = df[feature_col].mean(axis=1)
 
-    return (
-        correlation_matrix,
-        prediction_ew,
-        correlations_ew,
-        prediction_fm,
-        correlations_fm,
-    )
+            prediction_era, correlations_era = score_numerai(
+                portfolio_predictions,
+                df[feature_col],
+                None,
+                proportion=0,
+                modelname="equal_weighted",
+                target_col_name=target_col_name,
+            )
+            prediction_dynamic.append(prediction_era)
+            correlation_dynamic.append(correlations_era)
+
+            ## Factor Momentum
+            portfolio_predictions = df[[era_col, target_col_name]]
+            per_era = df[feature_col] * np.sign(factor_momentum.loc[i, feature_col])
+            portfolio_predictions["prediction"] = per_era.mean(axis=1)
+
+            prediction_era, correlations_era = score_numerai(
+                portfolio_predictions,
+                df[feature_col],
+                None,
+                proportion=0,
+                modelname="factor_momentum",
+                target_col_name=target_col_name,
+            )
+
+            prediction_dynamic.append(prediction_era)
+            correlation_dynamic.append(correlations_era)
+
+            factor_momentum_era = factor_momentum_eras[factor_momentum_eras["era"] == i]
+            factor_volatility_era = factor_volatility_eras[
+                factor_volatility_eras["era"] == i
+            ]
+
+            momentum_winners = factor_momentum_era.sort_values("momentum").tail(cutoff)[
+                "feature_name"
+            ]
+            momentum_losers = factor_momentum_era.sort_values("momentum").head(cutoff)[
+                "feature_name"
+            ]
+            high_vol = factor_volatility_era.sort_values("volatility").tail(cutoff)[
+                "feature_name"
+            ]
+            low_vol = factor_volatility_era.sort_values("volatility").head(cutoff)[
+                "feature_name"
+            ]
+
+            ## Recent Winners
+            portfolio_predictions = df[[era_col, target_col_name]]
+            per_era = df[momentum_winners] * np.sign(
+                factor_momentum.loc[i, momentum_winners]
+            )
+            portfolio_predictions["prediction"] = per_era.mean(axis=1)
+            prediction_era, correlations_era = score_numerai(
+                portfolio_predictions,
+                df[feature_col],
+                None,
+                proportion=0,
+                modelname="recent_winners",
+                target_col_name=target_col_name,
+            )
+
+            prediction_dynamic.append(prediction_era)
+            correlation_dynamic.append(correlations_era)
+
+            ## Recent Losers
+            portfolio_predictions = df[[era_col, target_col_name]]
+            per_era = df[momentum_losers] * np.sign(
+                factor_momentum.loc[i, momentum_losers]
+            )
+            portfolio_predictions["prediction"] = per_era.mean(axis=1)
+            prediction_era, correlations_era = score_numerai(
+                portfolio_predictions,
+                df[feature_col],
+                None,
+                proportion=0,
+                modelname="recent_losers",
+                target_col_name=target_col_name,
+            )
+            prediction_dynamic.append(prediction_era)
+            correlation_dynamic.append(correlations_era)
+
+            ## High Vol
+            portfolio_predictions = df[[era_col, target_col_name]]
+            per_era = df[high_vol] * np.sign(factor_momentum.loc[i, high_vol])
+            portfolio_predictions["prediction"] = per_era.mean(axis=1)
+            prediction_era, correlations_era = score_numerai(
+                portfolio_predictions,
+                df[feature_col],
+                None,
+                proportion=0,
+                modelname="high_vol",
+                target_col_name=target_col_name,
+            )
+            prediction_dynamic.append(prediction_era)
+            correlation_dynamic.append(correlations_era)
+            ## Low Vol
+            portfolio_predictions = df[[era_col, target_col_name]]
+            per_era = df[low_vol] * np.sign(factor_momentum.loc[i, low_vol])
+            portfolio_predictions["prediction"] = per_era.mean(axis=1)
+            prediction_era, correlations_era = score_numerai(
+                portfolio_predictions,
+                df[feature_col],
+                None,
+                proportion=0,
+                modelname="low_vol",
+                target_col_name=target_col_name,
+            )
+            prediction_dynamic.append(prediction_era)
+            correlation_dynamic.append(correlations_era)
+
+    return pd.concat(prediction_dynamic, axis=0), pd.concat(correlation_dynamic, axis=0)
 
 
 def dynamic_feature_neutralisation(
@@ -570,6 +674,17 @@ def dynamic_feature_neutralisation(
                 low_vol,
                 proportion=proportion,
                 modelname=f"{modelname}-low_vol",
+                era_col=era_col,
+                debug=debug,
+            )
+            prediction_dynamic.append(prediction_df_era)
+            correlation_dynamic.append(correlations_by_era)
+            prediction_df_era, correlations_by_era = score_numerai(
+                prediction_df_era,
+                features_raw_era,
+                None,
+                proportion=0,
+                modelname=f"{modelname}-baseline",
                 era_col=era_col,
                 debug=debug,
             )

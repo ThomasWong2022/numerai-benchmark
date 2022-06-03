@@ -49,8 +49,8 @@ def strategy_metrics(strategy, interval=1, numerai=True):
         portfolio = strategy.cumsum()
     else:
         portfolio = (1 + strategy).cumprod()
-    if numerai:    
-        dd = (portfolio - portfolio.cummax())
+    if numerai:
+        dd = portfolio - portfolio.cummax()
     else:
         dd = (portfolio - portfolio.cummax()) / portfolio.cummax()
     results["max_drawdown"] = -1 * dd.cummin().min()
@@ -78,10 +78,10 @@ def align_features_target(features, target, large_value=1e6):
                 for column in features.columns.to_flat_index()
             ]
     ## Remove rows with na and align features and target to same length
-    features.replace(np.inf, large_value, inplace=True)
-    features.replace(-np.inf, -1 * large_value, inplace=True)
-    features = features.dropna()
-    target = target.dropna()
+    ##features.replace(np.inf, large_value, inplace=True)
+    ##features.replace(-np.inf, -1 * large_value, inplace=True)
+    ##features = features.dropna()
+    ##target = target.dropna()
     valid_index = features.index.intersection(target.index)
     features = features.reindex(valid_index)
     target = target.reindex(valid_index)
