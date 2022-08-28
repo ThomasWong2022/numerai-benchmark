@@ -28,6 +28,16 @@ import xgboost
 from .benchmark import load_best_model, save_best_model
 from .util import align_features_target, RollingTSTransformer, GroupedTimeSeriesSplit
 
+
+## Shifting Numerai Era
+def convert_era(era, gap=6):
+    new_era_int = int(era) + gap
+    new_era = str(new_era_int)
+    while len(new_era) < 4:
+        new_era = "0" + new_era
+    return new_era
+
+
 ### Map Numerai Era to actual datetime
 def create_era_index(
     df,
@@ -206,6 +216,145 @@ def predict_numerai(
     return prediction_df
 
 
+###
+
+
+def predict_numerai_dynamic(
+    features_raw,
+    targets,
+    groups,
+    trained_model,
+    parameters,
+    correlation_matrix,  ## dyanmic feature augmentation
+    modelname="sample",
+    gbm_start_iteration=None,  ## Backward Comptability
+    era_col="era",
+    debug=False,
+    cutoff=420,  ## dyanmic feature augmentation
+    gap=6,  ## dyanmic feature augmentation
+    lookback=52,  ## dyanmic feature augmentation
+):
+
+    ## Generate Feature Momentum Leaderboard
+    factor_momentum = correlation_matrix.shift(gap).fillna(0).rolling(lookback).mean()
+    factor_volatility = correlation_matrix.shift(gap).fillna(0).rolling(lookback).std()
+
+    fm_max_index = factor_momentum.index.max()
+    fm_min_index = factor_momentum.index.min()
+
+    ##
+    factor_momentum_eras = factor_momentum.unstack(level=0).reset_index()
+    factor_momentum_eras.columns = ["feature_name", "era", "momentum"]
+    factor_volatility_eras = factor_volatility.unstack(level=0).reset_index()
+    factor_volatility_eras.columns = ["feature_name", "era", "volatility"]
+
+    ## Get index by era
+    prediction_dynamic = list()
+
+    for i, df in pd.DataFrame(groups).groupby(era_col):
+
+        features_era = features_raw.loc[df.index]
+        targets_era = targets.loc[df.index]
+        groups_era = groups.loc[df.index]
+
+        if debug:
+            print(i, df.shape)
+
+        if (i <= fm_max_index) & (i >= fm_min_index):
+
+            factor_momentum_era = factor_momentum_eras[factor_momentum_eras["era"] == i]
+            factor_volatility_era = factor_volatility_eras[
+                factor_volatility_eras["era"] == i
+            ]
+
+            ## Momentum Winners
+            momentum_winners = factor_momentum_era.sort_values("momentum").tail(cutoff)[
+                "feature_name"
+            ]
+            features_era_augmented = features_era.copy()
+            features_era_augmented[momentum_winners] = np.nan
+            prediction_df_era = predict_numerai(
+                features_era_augmented,
+                targets_era,
+                groups_era,
+                trained_model,
+                parameters,
+                modelname=f"{modelname}-momentum_winners",
+                gbm_start_iteration=gbm_start_iteration,  ## Backward Comptability
+                era_col=era_col,
+                debug=debug,
+            )
+            prediction_dynamic.append(prediction_df_era)
+            ## Momentum Losers
+            momentum_losers = factor_momentum_era.sort_values("momentum").head(cutoff)[
+                "feature_name"
+            ]
+            features_era_augmented = features_era.copy()
+            features_era_augmented[momentum_losers] = np.nan
+            prediction_df_era = predict_numerai(
+                features_era_augmented,
+                targets_era,
+                groups_era,
+                trained_model,
+                parameters,
+                modelname=f"{modelname}-momentum_losers",
+                gbm_start_iteration=gbm_start_iteration,  ## Backward Comptability
+                era_col=era_col,
+                debug=debug,
+            )
+            prediction_dynamic.append(prediction_df_era)
+            ## High Volatility
+            high_vol = factor_volatility_era.sort_values("volatility").tail(cutoff)[
+                "feature_name"
+            ]
+            features_era_augmented = features_era.copy()
+            features_era_augmented[high_vol] = np.nan
+            prediction_df_era = predict_numerai(
+                features_era_augmented,
+                targets_era,
+                groups_era,
+                trained_model,
+                parameters,
+                modelname=f"{modelname}-high_vol",
+                gbm_start_iteration=gbm_start_iteration,  ## Backward Comptability
+                era_col=era_col,
+                debug=debug,
+            )
+            prediction_dynamic.append(prediction_df_era)
+            ## Low Volatility
+            low_vol = factor_volatility_era.sort_values("volatility").head(cutoff)[
+                "feature_name"
+            ]
+            features_era_augmented = features_era.copy()
+            features_era_augmented[low_vol] = np.nan
+            prediction_df_era = predict_numerai(
+                features_era_augmented,
+                targets_era,
+                groups_era,
+                trained_model,
+                parameters,
+                modelname=f"{modelname}-low_vol",
+                gbm_start_iteration=gbm_start_iteration,  ## Backward Comptability
+                era_col=era_col,
+                debug=debug,
+            )
+            prediction_dynamic.append(prediction_df_era)
+
+            prediction_df_era = predict_numerai(
+                features_era,
+                targets_era,
+                groups_era,
+                trained_model,
+                parameters,
+                modelname=f"{modelname}-baseline",
+                era_col=era_col,
+                debug=debug,
+            )
+            prediction_dynamic.append(prediction_df_era)
+
+    return pd.concat(prediction_dynamic, axis=0)
+
+
 """
 prediction_df: pd.DataFrame with columns era, prediction, model_name, target_col  and index id 
 features: pd.DataFrame with columns feature_xxx and index id 
@@ -244,11 +393,9 @@ def score_numerai(
             df[prediction_col]
         )
         df["normalised_prediction"] = scipy.stats.norm.ppf(temp)
-        output["normalised_correlation"] = np.corrcoef(
-            df[target_col_name], df["normalised_prediction"]
-        )[0, 1]
+        #  output["normalised_correlation"] = np.corrcoef(df[target_col_name], df["normalised_prediction"])[0, 1]
         ## Neutralised targets (FNC)
-        if proportion > 0:
+        if proportion > 0 and len(riskiest_features) > 0:
             exposures = features.loc[df.index, riskiest_features]
             df["neutralised_prediction"] = df[
                 "normalised_prediction"
@@ -278,106 +425,163 @@ def score_numerai(
     return prediction_df, correlations_by_era
 
 
-def score_numerai_multiple(
-    Numerai_Model_Names,
-    filename="data/v4_all_int8.parquet",
-    data_version="v4",
-    feature_selection="v4",
-    startera="0001",
-    endera="9999",
-    riskiest_features=None,
-    proportion=0,
-    gbm_start_iteration=None,  ## Set to None to use the lgb_start_iteration from Numerai Hyper-parameter Search
-    debug=False,
+### Perform Dynamic Feature Neutralisation given predicted values from ML models and score the neutralised predictions
+def dynamic_feature_neutralisation(
+    prediction_df,
+    features_raw,
+    correlation_matrix,
+    features_optimizer=None,
+    modelname="sample",
+    gbm_start_iteration=None,
     era_col="era",
-    target_col=["target"],
+    cutoff=420,
+    gap=6,
+    lookback=52,
+    proportion=1,
+    debug=False,
 ):
 
-    features, targets, groups, weights = load_numerai_data(
-        filename=filename,
-        target_col=target_col,
-        era_col=era_col,
-        data_version=data_version,
-        feature_selection=feature_selection,
-        startera=startera,
-        endera=endera,
-    )
+    if features_optimizer is None:
+        features_optimizer = features_raw.columns[:cutoff]
 
-    prediction_df_list = list()
-    score_df_list = list()
+    ## Generate Feature Momentum Leaderboard
+    factor_momentum = correlation_matrix.shift(gap).fillna(0).rolling(lookback).mean()
+    factor_volatility = correlation_matrix.shift(gap).fillna(0).rolling(lookback).std()
 
-    for Numerai_Model_Name in Numerai_Model_Names:
-        modelname = Numerai_Model_Name.replace(".parameters", ".model")
-        parameters = joblib.load(Numerai_Model_Name)
-        most_recent_model = load_best_model(
-            parameters["parameters"]["model"]["tabular_model"], modelname
-        )
+    fm_max_index = factor_momentum.index.max()
+    fm_min_index = factor_momentum.index.min()
 
+    ##
+    factor_momentum_eras = factor_momentum.unstack(level=0).reset_index()
+    factor_momentum_eras.columns = ["feature_name", "era", "momentum"]
+    factor_volatility_eras = factor_volatility.unstack(level=0).reset_index()
+    factor_volatility_eras.columns = ["feature_name", "era", "volatility"]
+
+    ## Get index by era
+    prediction_dynamic = list()
+    correlation_dynamic = list()
+    for i, df in prediction_df.groupby(era_col):
         if debug:
-            print(modelname)
-
-        prediction_df = predict_numerai(
-            features,
-            targets,
-            groups,
-            most_recent_model,
-            parameters,
-            modelname=modelname,
-            gbm_start_iteration=gbm_start_iteration,
-            era_col=era_col,
-            debug=debug,
-        )
-        if riskiest_features is None:
-            riskiest_features = parameters["parameters"]["model"]["feature_columns"]
-
-        prediction_df, correlations_by_era = score_numerai(
-            prediction_df,
-            features,
-            riskiest_features,
-            0,
-            modelname,
-            target_col_name=target_col[0],
-            era_col=era_col,
-            debug=debug,
-        )
-
-        ## Filter to predict on eras that are after the validation era of the trained model
-
-        prediction_df_list.append(prediction_df)
-        score_df_list.append(correlations_by_era)
-
-    if len(prediction_df_list) > 0:
-        average_prediction_df = (
-            pd.concat(prediction_df_list, axis=0)
-            .groupby("id")[
-                [
-                    era_col,
-                    "prediction",
-                ]
-                + target_col
+            print(i, df.shape)
+        if (i <= fm_max_index) & (i >= fm_min_index):
+            prediction_df_era = prediction_df.loc[df.index]
+            features_raw_era = features_raw.loc[df.index]
+            factor_momentum_era = factor_momentum_eras[factor_momentum_eras["era"] == i]
+            factor_volatility_era = factor_volatility_eras[
+                factor_volatility_eras["era"] == i
             ]
-            .mean()
-            .reindex(prediction_df_list[0].index)
-        )
-        average_prediction_df[era_col] = prediction_df_list[0][era_col]
-        average_prediction_df, correlations_by_era = score_numerai(
-            average_prediction_df,
-            features,
-            riskiest_features,
-            proportion,
-            "Mean",
-            target_col_name=target_col[0],
-            era_col=era_col,
-            debug=debug,
-        )
-        return (
-            average_prediction_df,
-            correlations_by_era,
-            prediction_df_list,
-            score_df_list,
-        )
-    else:
-        return pd.DataFrame(), pd.DataFrame(), prediction_df_list, score_df_list
+
+            ## Baseline
+            prediction_df_era_new, correlations_by_era = score_numerai(
+                prediction_df_era,
+                features_raw_era,
+                None,
+                proportion=0,
+                modelname=f"{modelname}-baseline",
+                era_col=era_col,
+                debug=debug,
+            )
+            prediction_dynamic.append(prediction_df_era_new.copy())
+            correlation_dynamic.append(correlations_by_era)
+
+            ## Optimizer
+            prediction_df_era_new, correlations_by_era = score_numerai(
+                prediction_df_era,
+                features_raw_era,
+                features_optimizer,
+                proportion=proportion,
+                modelname=f"{modelname}-optimizer",
+                era_col=era_col,
+                debug=debug,
+            )
+            prediction_dynamic.append(prediction_df_era_new.copy())
+            correlation_dynamic.append(correlations_by_era)
+
+            DFN_params = [
+                (
+                    "momentum",
+                    420,
+                    "tail",
+                    "momentum_winners",
+                ),
+                (
+                    "momentum",
+                    420,
+                    "head",
+                    "momentum_losers",
+                ),
+                (
+                    "volatility",
+                    420,
+                    "tail",
+                    "high_vol",
+                ),
+                (
+                    "volatility",
+                    420,
+                    "head",
+                    "low_vol",
+                ),
+                (
+                    "momentum",
+                    105,
+                    "tail",
+                    "momentum_winners_small",
+                ),
+                (
+                    "momentum",
+                    105,
+                    "head",
+                    "momentum_losers_small",
+                ),
+                (
+                    "volatility",
+                    105,
+                    "tail",
+                    "high_vol_small",
+                ),
+                (
+                    "volatility",
+                    105,
+                    "head",
+                    "low_vol_small",
+                ),
+            ]
+
+            for DFN_param in DFN_params:
+
+                if DFN_param[0] == "momentum":
+                    if DFN_param[2] == "tail":
+                        selected_features = factor_momentum_era.sort_values(
+                            "momentum"
+                        ).tail(DFN_param[1])["feature_name"]
+                    else:
+                        selected_features = factor_momentum_era.sort_values(
+                            "momentum"
+                        ).head(DFN_param[1])["feature_name"]
+                elif DFN_param[0] == "volatility":
+                    if DFN_param[2] == "tail":
+                        selected_features = factor_volatility_era.sort_values(
+                            "volatility"
+                        ).tail(DFN_param[1])["feature_name"]
+                    else:
+                        selected_features = factor_volatility_era.sort_values(
+                            "volatility"
+                        ).head(DFN_param[1])["feature_name"]
+
+                prediction_df_era_new, correlations_by_era = score_numerai(
+                    prediction_df_era,
+                    features_raw_era,
+                    selected_features,
+                    proportion=proportion,
+                    modelname=f"{modelname}-{DFN_param[3]}",
+                    era_col=era_col,
+                    debug=debug,
+                )
+                prediction_dynamic.append(prediction_df_era_new.copy())
+                correlation_dynamic.append(correlations_by_era)
+
+    return pd.concat(prediction_dynamic, axis=0), pd.concat(correlation_dynamic, axis=0)
 
 
 """
@@ -407,6 +611,208 @@ def numerai_feature_correlation_matrix(
         output[i] = corr_dict
 
     return pd.DataFrame.from_records(output).transpose()[feature_col]
+
+
+##### Scoring Numerai Models
+def score_numerai_multiple(
+    Numerai_Model_Names,
+    correlation_matrix=None,
+    filename="data/v4_all_int8.parquet",
+    data_version="v4",
+    feature_selection="v4",
+    startera="0001",
+    endera="9999",
+    riskiest_features=None,
+    proportion=0,
+    gbm_start_iteration=None,  ## Set to None to use the lgb_start_iteration from Numerai Hyper-parameter Search
+    prediction_mode="default",
+    score_mode="default",
+    debug=False,
+    era_col="era",
+    target_col=["target"],
+):
+
+    features, targets, groups, weights = load_numerai_data(
+        filename=filename,
+        target_col=target_col,
+        era_col=era_col,
+        data_version=data_version,
+        feature_selection=feature_selection,
+        startera=startera,
+        endera=endera,
+    )
+
+    prediction_df_list = list()
+    score_df_list = list()
+
+    for Numerai_Model_Name in Numerai_Model_Names:
+        modelname = Numerai_Model_Name.replace(".parameters", ".model")
+        parameters = joblib.load(Numerai_Model_Name)
+        most_recent_model = load_best_model(
+            parameters["parameters"]["model"]["tabular_model"], modelname
+        )
+
+        if debug:
+            print(modelname)
+
+        if prediction_mode == "default":
+            prediction_df = predict_numerai(
+                features,
+                targets,
+                groups,
+                most_recent_model,
+                parameters,
+                modelname=modelname,
+                gbm_start_iteration=gbm_start_iteration,
+                era_col=era_col,
+                debug=debug,
+            )
+            prediction_df_list.append(prediction_df)
+        else:
+            prediction_df = predict_numerai_dynamic(
+                features,
+                targets,
+                groups,
+                most_recent_model,
+                parameters,
+                correlation_matrix,
+                modelname=modelname,
+                gbm_start_iteration=gbm_start_iteration,
+                era_col=era_col,
+                debug=debug,
+            )
+            prediction_df_list.append(prediction_df)
+
+        if riskiest_features is None:
+            riskiest_features = parameters["parameters"]["model"]["feature_columns"]
+
+        if debug:
+            print(prediction_df.columns, prediction_df.shape)
+
+        if score_mode == "default":
+            if prediction_mode == "default":
+                prediction_df, correlations_by_era = score_numerai(
+                    prediction_df,
+                    features,
+                    riskiest_features,
+                    0,
+                    modelname,
+                    target_col_name=target_col[0],
+                    era_col=era_col,
+                    debug=debug,
+                )
+                score_df_list.append(correlations_by_era)
+
+            else:
+                modelnames = prediction_df["model_name"].unique()
+                for modelname in modelnames:
+                    prediction_df_one = prediction_df[
+                        prediction_df["model_name"] == modelname
+                    ]
+                    prediction_df_one, correlations_by_era = score_numerai(
+                        prediction_df_one,
+                        features,
+                        riskiest_features,
+                        0,
+                        modelname,
+                        target_col_name=target_col[0],
+                        era_col=era_col,
+                        debug=debug,
+                    )
+                    score_df_list.append(correlations_by_era)
+
+    if len(prediction_df_list) > 0:
+        if prediction_mode == "default":
+
+            average_prediction_df = (
+                pd.concat(prediction_df_list, axis=0)
+                .groupby("id")[
+                    [
+                        era_col,
+                        "prediction",
+                    ]
+                    + target_col
+                ]
+                .mean()
+                .reindex(prediction_df_list[0].index)
+            )
+            average_prediction_df[era_col] = prediction_df_list[0][era_col]
+
+            if debug:
+                print(average_prediction_df.columns, average_prediction_df.shape)
+
+            if score_mode == "default":
+                average_prediction_df, correlations_by_era = score_numerai(
+                    average_prediction_df,
+                    features,
+                    riskiest_features,
+                    proportion,
+                    "Mean",
+                    target_col_name=target_col[0],
+                    era_col=era_col,
+                    debug=debug,
+                )
+                return (
+                    average_prediction_df,
+                    correlations_by_era,
+                    prediction_df_list,
+                    score_df_list,
+                )
+            else:
+                return (
+                    average_prediction_df,
+                    None,
+                    prediction_df_list,
+                    None,
+                )
+
+        else:
+            average_prediction_df_list = list()
+            correlations_by_era_list = list()
+            modelnames = prediction_df["model_name"].unique()
+            for modelname in modelnames:
+                temp = pd.concat(prediction_df_list, axis=0)
+                prediction_df_one = temp[temp["model_name"] == modelname]
+                average_prediction_df = (
+                    prediction_df_one.groupby("id")[
+                        [
+                            era_col,
+                            "prediction",
+                        ]
+                        + target_col
+                    ]
+                    .mean()
+                    .reindex(prediction_df_list[0].index)
+                )
+                average_prediction_df[era_col] = prediction_df_list[0][era_col]
+                average_prediction_df, correlations_by_era = score_numerai(
+                    average_prediction_df,
+                    features,
+                    riskiest_features,
+                    proportion,
+                    "Mean",
+                    target_col_name=target_col[0],
+                    era_col=era_col,
+                    debug=debug,
+                )
+                average_prediction_df_list.append(average_prediction_df)
+                correlations_by_era_list.append(correlations_by_era)
+
+            return (
+                average_prediction_df_list,
+                correlations_by_era_list,
+                prediction_df_list,
+                score_df_list,
+            )
+
+    else:
+        return pd.DataFrame(), pd.DataFrame(), prediction_df_list, score_df_list
+
+
+"""
+Linear Factor Model
+
+"""
 
 
 def numerai_factor_portfolio(
@@ -561,135 +967,6 @@ def numerai_factor_portfolio(
             )
             prediction_dynamic.append(prediction_era)
             correlation_dynamic.append(correlations_era)
-
-    return pd.concat(prediction_dynamic, axis=0), pd.concat(correlation_dynamic, axis=0)
-
-
-def dynamic_feature_neutralisation(
-    prediction_df,
-    features_raw,
-    correlation_matrix,
-    features_optimizer=None,
-    modelname="sample",
-    gbm_start_iteration=None,
-    era_col="era",
-    cutoff=420,
-    gap=6,
-    lookback=52,
-    proportion=1,
-    debug=False,
-):
-
-    if features_optimizer is None:
-        features_optimizer = features_raw.columns[:cutoff]
-
-    ## Generate Feature Momentum Leaderboard
-    factor_momentum = correlation_matrix.shift(gap).fillna(0).rolling(lookback).mean()
-    factor_volatility = correlation_matrix.shift(gap).fillna(0).rolling(lookback).std()
-
-    fm_max_index = factor_momentum.index.max()
-    fm_min_index = factor_momentum.index.min()
-
-    ##
-    factor_momentum_eras = factor_momentum.unstack(level=0).reset_index()
-    factor_momentum_eras.columns = ["feature_name", "era", "momentum"]
-    factor_volatility_eras = factor_volatility.unstack(level=0).reset_index()
-    factor_volatility_eras.columns = ["feature_name", "era", "volatility"]
-
-    ## Get index by era
-    prediction_dynamic = list()
-    correlation_dynamic = list()
-    for i, df in prediction_df.groupby(era_col):
-        if debug:
-            print(i, df.shape)
-        if (i <= fm_max_index) & (i >= fm_min_index):
-            prediction_df_era = prediction_df.loc[df.index]
-            features_raw_era = features_raw.loc[df.index]
-            factor_momentum_era = factor_momentum_eras[factor_momentum_eras["era"] == i]
-            factor_volatility_era = factor_volatility_eras[
-                factor_volatility_eras["era"] == i
-            ]
-            ## Optimizer
-            prediction_df_era, correlations_by_era = score_numerai(
-                prediction_df_era,
-                features_raw_era,
-                features_optimizer,
-                proportion=proportion,
-                modelname=f"{modelname}-optimizer",
-                era_col=era_col,
-                debug=debug,
-            )
-            prediction_dynamic.append(prediction_df_era)
-            correlation_dynamic.append(correlations_by_era)
-            ## Momentum
-            momentum_winners = factor_momentum_era.sort_values("momentum").tail(cutoff)[
-                "feature_name"
-            ]
-            prediction_df_era, correlations_by_era = score_numerai(
-                prediction_df_era,
-                features_raw_era,
-                momentum_winners,
-                proportion=proportion,
-                modelname=f"{modelname}-momentum_winners",
-                era_col=era_col,
-                debug=debug,
-            )
-            prediction_dynamic.append(prediction_df_era)
-            correlation_dynamic.append(correlations_by_era)
-            momentum_losers = factor_momentum_era.sort_values("momentum").head(cutoff)[
-                "feature_name"
-            ]
-            prediction_df_era, correlations_by_era = score_numerai(
-                prediction_df_era,
-                features_raw_era,
-                momentum_losers,
-                proportion=proportion,
-                modelname=f"{modelname}-momentum_losers",
-                era_col=era_col,
-                debug=debug,
-            )
-            prediction_dynamic.append(prediction_df_era)
-            correlation_dynamic.append(correlations_by_era)
-            ## Volatility
-            high_vol = factor_volatility_era.sort_values("volatility").tail(cutoff)[
-                "feature_name"
-            ]
-            prediction_df_era, correlations_by_era = score_numerai(
-                prediction_df_era,
-                features_raw_era,
-                high_vol,
-                proportion=proportion,
-                modelname=f"{modelname}-high_vol",
-                era_col=era_col,
-                debug=debug,
-            )
-            prediction_dynamic.append(prediction_df_era)
-            correlation_dynamic.append(correlations_by_era)
-            low_vol = factor_volatility_era.sort_values("volatility").head(cutoff)[
-                "feature_name"
-            ]
-            prediction_df_era, correlations_by_era = score_numerai(
-                prediction_df_era,
-                features_raw_era,
-                low_vol,
-                proportion=proportion,
-                modelname=f"{modelname}-low_vol",
-                era_col=era_col,
-                debug=debug,
-            )
-            prediction_dynamic.append(prediction_df_era)
-            correlation_dynamic.append(correlations_by_era)
-            prediction_df_era, correlations_by_era = score_numerai(
-                prediction_df_era,
-                features_raw_era,
-                None,
-                proportion=0,
-                modelname=f"{modelname}-baseline",
-                era_col=era_col,
-                debug=debug,
-            )
-            prediction_dynamic.append(prediction_df_era)
-            correlation_dynamic.append(correlations_by_era)
 
     return pd.concat(prediction_dynamic, axis=0), pd.concat(correlation_dynamic, axis=0)
 

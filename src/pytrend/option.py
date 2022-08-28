@@ -391,9 +391,9 @@ def benchmark_options(stock, tcost=0.001, long_only=False, hedge_ratio=0):
                     strategy_greeks["{}_{}".format(strategy_name, greek)] = strat[greek]
 
     ## Trend Following
-    for lookback in [10 * i for i in range(12, 25, 1)]:
-        for historical_vol in [0.5 * i for i in range(1, 4, 1)]:
-            for maturity in [1 * i for i in range(1, 3, 1)]:
+    for lookback in [10 * i for i in range(15, 71, 1)]:
+        for historical_vol in [1 * i for i in range(1, 2, 1)]:
+            for maturity in [1 * i for i in range(3, 4, 1)]:
                 strategy_name = "trend_{}_{}_{}".format(
                     lookback, historical_vol, maturity
                 )

@@ -35,16 +35,16 @@ from sklearn.base import TransformerMixin, BaseEstimator
 ##
 ## strategy: pd.Series (timestamp x ), usually to be daily return of a trading strategy
 ##
-def strategy_metrics(strategy, interval=1, numerai=True):
+def strategy_metrics(strategy, interval=1, numerai=True, accuracy=4):
     results = dict()
     if strategy.std() > 0:
-        results["sharpe"] = strategy.mean() / strategy.std()
+        results["sharpe"] = round(strategy.mean() / strategy.std(), accuracy)
     else:
         results["sharpe"] = np.nan
-    results["mean"] = strategy.mean()
-    results["volatility"] = strategy.std()
-    results["skew"] = strategy.skew()
-    results["kurtosis"] = strategy.kurtosis()
+    results["mean"] = round(strategy.mean(), accuracy)
+    results["volatility"] = round(strategy.std(), accuracy)
+    results["skew"] = round(strategy.skew(), accuracy)
+    results["kurtosis"] = round(strategy.kurtosis(), accuracy)
     if numerai:
         portfolio = strategy.cumsum()
     else:
@@ -53,12 +53,82 @@ def strategy_metrics(strategy, interval=1, numerai=True):
         dd = portfolio - portfolio.cummax()
     else:
         dd = (portfolio - portfolio.cummax()) / portfolio.cummax()
-    results["max_drawdown"] = -1 * dd.cummin().min()
+    results["max_drawdown"] = round(-1 * dd.cummin().min(), accuracy)
     if results["max_drawdown"] > 0:
-        results["RMDD"] = results["mean"] / results["max_drawdown"]
+        results["RMDD"] = round(results["mean"] / results["max_drawdown"], accuracy)
     else:
         results["RMDD"] = np.nan
+    ## Auto-correlation
+    results["AR_4"] = round(strategy.autocorr(lag=4), accuracy)
     return results
+
+
+def dynamic_model_selection_masks(performances, gap=6, lookback=52, top_models=1):
+    def normalise_mask(mask):
+        return mask + (1 - mask.sum(axis=1).reshape(-1, 1)) / mask.shape[1]
+
+    momentum = performances.shift(gap).rolling(lookback).mean()
+    volatility = performances.shift(gap).rolling(lookback).std()
+    drawdown = (
+        -1
+        * (
+            performances.shift(gap).cumsum() - performances.shift(gap).cumsum().cummax()
+        ).cummin()
+    )
+    sharpe = momentum / volatility
+    RMDD = momentum / drawdown
+
+    sharpe_mask = np.where(
+        sharpe.rank(axis=1, ascending=False) <= top_models, 1 / top_models, 0
+    )
+    sharpe_mask = normalise_mask(sharpe_mask)
+    RMDD_mask = np.where(
+        RMDD.rank(axis=1, ascending=False) <= top_models, 1 / top_models, 0
+    )
+    RMDD_mask = normalise_mask(RMDD_mask)
+    momentum_mask = np.where(
+        momentum.rank(axis=1, ascending=False) <= top_models, 1 / top_models, 0
+    )
+    momentum_mask = normalise_mask(momentum_mask)
+
+    return {
+        "momentum": pd.DataFrame(
+            momentum_mask, columns=momentum.columns, index=momentum.index
+        ),
+        "RoMaD": pd.DataFrame(RMDD_mask, columns=RMDD.columns, index=RMDD.index),
+        "sharpe": pd.DataFrame(sharpe_mask, columns=sharpe.columns, index=sharpe.index),
+    }
+
+
+def walk_forward_dynamic_models(df_list):
+    counter = 0
+    average_baselines = list()
+    for dynamic_models in df_list:
+        average_baselines.append(dynamic_models.iloc[:, 0])
+        counter += 1
+    models_over_time = pd.concat(df_list, axis=1)
+    imputation = np.repeat(
+        models_over_time.mean(
+            axis=1,
+            skipna=True,
+        ).values.reshape(-1, 1),
+        models_over_time.shape[1],
+        axis=1,
+    )
+    models_over_time_imputed = np.where(
+        models_over_time.isna(),
+        imputation,
+        models_over_time.values,
+    )
+    models_over_time = pd.DataFrame(
+        models_over_time_imputed,
+        index=models_over_time.index,
+        columns=models_over_time.columns,
+    )
+    baseline_models_over_time = pd.concat(average_baselines, axis=1).mean(
+        axis=1, skipna=True
+    )
+    return {"Ensemble": models_over_time, "Average-Baseline": baseline_models_over_time}
 
 
 ### Data Pre-processing
