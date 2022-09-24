@@ -55,9 +55,9 @@ def strategy_metrics(strategy, interval=1, numerai=True, accuracy=4):
         dd = (portfolio - portfolio.cummax()) / portfolio.cummax()
     results["max_drawdown"] = round(-1 * dd.cummin().min(), accuracy)
     if results["max_drawdown"] > 0:
-        results["RMDD"] = round(results["mean"] / results["max_drawdown"], accuracy)
+        results["calmar"] = round(results["mean"] / results["max_drawdown"], accuracy)
     else:
-        results["RMDD"] = np.nan
+        results["calmar"] = round(results["mean"] / 1e-6, accuracy)
     ## Auto-correlation
     results["AR_4"] = round(strategy.autocorr(lag=4), accuracy)
     return results
@@ -95,7 +95,7 @@ def dynamic_model_selection_masks(performances, gap=6, lookback=52, top_models=1
         "momentum": pd.DataFrame(
             momentum_mask, columns=momentum.columns, index=momentum.index
         ),
-        "RoMaD": pd.DataFrame(RMDD_mask, columns=RMDD.columns, index=RMDD.index),
+        "calmar": pd.DataFrame(RMDD_mask, columns=RMDD.columns, index=RMDD.index),
         "sharpe": pd.DataFrame(sharpe_mask, columns=sharpe.columns, index=sharpe.index),
     }
 
@@ -128,7 +128,10 @@ def walk_forward_dynamic_models(df_list):
     baseline_models_over_time = pd.concat(average_baselines, axis=1).mean(
         axis=1, skipna=True
     )
-    return {"Ensemble": models_over_time, "Average-Baseline": baseline_models_over_time}
+    return {
+        "Ensemble": models_over_time.sort_index(),
+        "Average-Baseline": baseline_models_over_time.sort_index(),
+    }
 
 
 ### Data Pre-processing

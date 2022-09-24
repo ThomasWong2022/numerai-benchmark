@@ -133,7 +133,6 @@ def read_crsp_price(
                 numerai_tickers = numerai_tickers[
                     numerai_tickers["industry"].isin(inds)
                 ]
-
             pricedf = pricedf[pricedf["permno"].isin(numerai_tickers["permno"])]
 
         if market == "Commodities":

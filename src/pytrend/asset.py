@@ -225,9 +225,6 @@ def Compustat_CRSP_Data(
         if optionsdf.shape[0] > 0:
             has_options = True
 
-    ### To be Implemented
-    ### Option Metrics Volatility Surface (Very Slow)
-
     if has_price_data:
         pivotdf = merge_compustat_dataset(
             pricedf,

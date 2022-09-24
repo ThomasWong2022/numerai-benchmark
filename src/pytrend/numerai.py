@@ -82,8 +82,11 @@ def load_numerai_data(
     df_raw[era_col] = df_raw[era_col].replace("X", "9999")
 
     ## Downsample Data
-    df_raw = df_raw[(df_raw[era_col] >= startera) & (df_raw[era_col] <= endera)]
-    df = df_raw.iloc[resample::resample_freq]
+    df = df_raw[(df_raw[era_col] >= startera) & (df_raw[era_col] <= endera)].iloc[
+        resample::resample_freq
+    ]
+
+    del df_raw
 
     ## Features Sets
     if data_version == "v4":
