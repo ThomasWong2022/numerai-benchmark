@@ -1,0 +1,1 @@
+{"max_epochs": 40, "patience": 10, "batch_size": 4096, "n_d": 52, "n_a": 16, "n_steps": 1, "n_shared": 2, "n_independent": 4, "gamma": 2.0, "momentum": 0.35000000000000003, "lambda_sparse": 0.0018605842486646216, "Optuna_Best_Value": 1.5218}

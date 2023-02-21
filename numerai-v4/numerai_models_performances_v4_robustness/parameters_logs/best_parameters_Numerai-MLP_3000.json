@@ -1,0 +1,1 @@
+{"learning_rate": 0.0012228768499994442, "max_epochs": 70, "patience": 5, "dropout": 0.11129189915545111, "num_layers": 3, "neurons": 512, "neuron_scale": 0.4386335718668308, "batch_size": 30720, "Optuna_Best_Value": 2.4797}

@@ -1,0 +1,1 @@
+{"max_epochs": 95, "patience": 5, "dropout": 0.4158464799738724, "num_layers": 4, "neurons": 704, "neuron_scale": 0.6117630457654639, "batch_size": 10240, "Optuna_Best_Value": 2.2615}

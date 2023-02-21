@@ -1,0 +1,1 @@
+{"num_iterations": 650, "learning_rate": 0.013571580271092488, "min_data_in_leaf": 32500, "feature_fraction": 0.30000000000000004, "lambda_l1": 0.010131100201779033, "lambda_l2": 0.026283738606441488, "top_rate": 0.25, "other_rate": 0.15000000000000002, "boosting": "goss", "Optuna_Best_Value": 1.4556}

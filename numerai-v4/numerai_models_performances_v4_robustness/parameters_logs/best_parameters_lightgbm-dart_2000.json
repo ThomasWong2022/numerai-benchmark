@@ -1,0 +1,1 @@
+{"num_iterations": 850, "learning_rate": 0.09937211000790351, "min_data_in_leaf": 35000, "feature_fraction": 0.4, "lambda_l1": 0.40794360694095, "lambda_l2": 0.011592683955691904, "bagging_fraction": 0.8, "bagging_freq": 30, "drop_rate": 0.5, "skip_drop": 0.8, "boosting": "dart", "Optuna_Best_Value": 2.5182}

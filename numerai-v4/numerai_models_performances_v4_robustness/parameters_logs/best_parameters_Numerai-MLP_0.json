@@ -1,0 +1,1 @@
+{"no_product_features": 750, "dropout_pct": 0.05, "max_epochs": 75, "patience": 15, "dropout": 0.5920511933948196, "num_layers": 5, "neurons": 512, "neuron_scale": 0.7044020683717689, "batch_size": 20480, "Optuna_Best_Value": 2.0495}

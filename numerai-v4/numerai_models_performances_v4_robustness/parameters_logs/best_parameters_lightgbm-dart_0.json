@@ -1,0 +1,1 @@
+{"no_product_features": 150, "dropout_pct": 0.15000000000000002, "num_iterations": 900, "learning_rate": 0.04619452557632254, "min_data_in_leaf": 20000, "feature_fraction": 0.85, "lambda_l1": 0.0712396493852852, "lambda_l2": 0.24822290814159795, "bagging_fraction": 0.55, "bagging_freq": 30, "drop_rate": 0.2, "skip_drop": 0.6, "boosting": "dart", "Optuna_Best_Value": 2.2795}
