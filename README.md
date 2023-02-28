@@ -19,7 +19,7 @@ A novel deep learning model for temporal tabular datasets, which complements wel
 ## PortfolioOpt2.0
 
 A new method to combine predictions from machine learning model using well-known theories from finance.
-Using the best research results from **both** finance and reinfrocement learning, 
+Using the best research methods from **both** finance and reinfrocement learning, 
 the method can maximise the portfolio return (or minimise the given loss function) within required risk metrics.
 
 
