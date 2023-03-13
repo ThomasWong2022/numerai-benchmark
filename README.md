@@ -1,4 +1,4 @@
-The code is substantially improved in the new autoML tool THOR described below. If you want to know more about THOR please contact Thomas Wong by email mw4315@ic.ac.uk
+The code is substantially improved in the new autoML tool THOR described below. The link to the new repo is https://github.com/ThomasWong2022/thor-public. All the latest updates will be pushed to the new repo instaed of this one. 
 
 
 # THOR: Time-Varying High-dimensional Ordinal Regression 
