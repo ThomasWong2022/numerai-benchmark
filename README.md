@@ -1,35 +1,12 @@
-The code is substantially improved in the new autoML tool THOR described below. The link to the new repo is https://github.com/ThomasWong2022/thor-public. All the latest updates will be pushed to the new repo instaed of this one. 
+The code is substantially improved in the new autoML tool THOR. The link to the new repo is https://github.com/ThomasWong2022/thor-public. All the latest updates will be pushed to the new repo instaed of this one. 
 
 
-# THOR: Time-Varying High-dimensional Ordinal Regression 
+## Structure of Repo 
 
-THOR is a new autoML tool for temporal tabular datasets and time series. It handles high dimensional datasets with distribution shifts better than other tools. Inspired by the Numerai competiton, THOR has evolved from a specific tool for Numerai competition into a general ML pipeline which has many applications in finance and healthcare. 
-
-In the following I list some features in THOR. It is not an exhausive list and there are more proprietary features that is not listed here. 
-
-## GBDT2.0
-
-Customised LightGBM-based Gradient Boosting Decision Trees models for temporal tabular datasets.
-
-
-## DeepLearner2.0
-
-A novel deep learning model for temporal tabular datasets, which complements well with the above GBDT-based models.
-
-
-## PortfolioOpt2.0
-
-A new method to combine predictions from machine learning model using well-known theories from finance. Using the best research results from both finance and reinforcement learning, the method can maximise the portfolio return (or minimise the given loss function) within required risk metrics.
-
-
-## TimeSeriesHybrid 
-
-A new method which combines classical and machine learning techniques for feature engineering and sequence modelling. A hybrid approach which demonstrate robust performances for high dimensional time-series.
-
-## TrendFollower2.0 
-
-An enhanced implementation of trend following strategies with improved robustness and lower risks than the standard implementation of moving averages.
-
+  - src/ Source Code for Running Python Code 
+  - scripts/ Setting Docker Images 
+  - numerai-v4/ Notebooks, Model Performances and Parameters for the trained models used in the following paper
+  - numerai-signals/ (Ongoing work) Applying the method described in the paper to real financial datasets 
 
 
 
