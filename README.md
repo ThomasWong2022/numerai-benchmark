@@ -13,7 +13,7 @@ The code is substantially improved in the new autoML tool THOR. The link to the 
 ## Citation
 If you are using this package in your scientific work, we would appreciate citations to the following preprint on arxiv.
 
-[Robust machine learning pipelines for trading market-neutral stock portfolios](https://arxiv.org/abs/2301.00790 )
+[Dynamic Feature Engineering and model selection methods for temporal tabular datasets with regime changes](https://arxiv.org/abs/2301.00790 )
 
 Bibtex entry:
 ```
@@ -26,7 +26,7 @@ Bibtex entry:
   
   keywords = {Computational Finance (q-fin.CP), Computational Engineering, Finance, and Science (cs.CE), Machine Learning (cs.LG), FOS: Economics and business, FOS: Economics and business, FOS: Computer and information sciences, FOS: Computer and information sciences},
   
-  title = {Robust machine learning pipelines for trading market-neutral stock portfolios},
+  title = {Dynamic Feature Engineering and model selection methods for temporal tabular datasets with regime changes},
   
   publisher = {arXiv},
   
